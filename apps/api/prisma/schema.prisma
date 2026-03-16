@@ -1,0 +1,506 @@
+// =============================================================================
+// MerchantFlow — Prisma Schema
+// Cross-border e-commerce operations platform
+// =============================================================================
+//
+// Design principles:
+// 1. Store-scoped multi-tenancy: every business entity belongs to a store.
+//    All queries MUST include storeId in WHERE clauses. Prisma middleware
+//    enforces this at runtime; composite indexes make it efficient.
+// 2. Soft deletes via deletedAt — hard deletes only through background
+//    retention jobs. Foreign keys use RESTRICT to prevent orphans.
+// 3. Outbox pattern: domain events are written in the same transaction as
+//    the aggregate mutation. A poller publishes them to BullMQ.
+// 4. Idempotency: every write endpoint requires a client-supplied
+//    idempotency key. We store the response so retries return the same body.
+// 5. Webhook deduplication: Shopify sends X-Shopify-Webhook-Id which we
+//    store to reject duplicates before processing.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto]
+}
+
+// =============================================================================
+// MULTI-TENANCY: Store (Merchant)
+// =============================================================================
+// A Store is the tenant boundary. It maps 1:1 to a Shopify shop installed
+// via OAuth. All downstream data is scoped by storeId.
+
+model Store {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Shopify OAuth fields
+  shopifyDomain      String  @unique @map("shopify_domain")          // e.g. "cool-merch.myshopify.com"
+  shopifyAccessToken  String  @map("shopify_access_token")            // encrypted at rest via application layer
+  shopifyScopes       String  @map("shopify_scopes")                  // comma-separated granted scopes
+  shopifyWebhookSecret String? @map("shopify_webhook_secret")         // per-store HMAC secret for webhook verification
+
+  // Merchant info
+  name     String
+  email    String
+  currency String  @default("USD") @db.VarChar(3)
+  timezone String  @default("UTC")
+
+  // Status
+  status   StoreStatus @default(ACTIVE)
+
+  // Webhook delivery configuration
+  webhookEndpoints WebhookEndpoint[]
+
+  // Relations
+  products   Product[]
+  orders     Order[]
+  shipments  Shipment[]
+  outboxEvents OutboxEvent[]
+  idempotencyKeys IdempotencyKey[]
+
+  @@index([status])
+  @@index([shopifyDomain])
+  @@map("stores")
+}
+
+enum StoreStatus {
+  ACTIVE
+  SUSPENDED
+  UNINSTALLED
+}
+
+// =============================================================================
+// PRODUCT CATALOG
+// =============================================================================
+// Products synced from Shopify. We store a denormalized snapshot so we can
+// operate on orders even if the Shopify API is down.
+
+model Product {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  // Shopify external ID — unique per store
+  shopifyProductId String @map("shopify_product_id")
+
+  title       String
+  description String?  @db.Text
+  vendor      String?
+  productType String?  @map("product_type")
+  status      ProductStatus @default(ACTIVE)
+
+  // Inventory
+  sku              String?
+  barcode          String?
+  inventoryQuantity Int     @default(0) @map("inventory_quantity")
+  weight           Decimal? @db.Decimal(10, 2)
+  weightUnit       String?  @default("kg") @map("weight_unit") @db.VarChar(5)
+
+  // Price
+  price        Decimal @db.Decimal(12, 2)
+  compareAtPrice Decimal? @map("compare_at_price") @db.Decimal(12, 2)
+  currencyCode String  @default("USD") @map("currency_code") @db.VarChar(3)
+
+  // HS code for cross-border customs
+  hsCode       String? @map("hs_code") @db.VarChar(12)
+  countryOfOrigin String? @map("country_of_origin") @db.VarChar(2)
+
+  // Sync metadata
+  shopifySyncedAt DateTime? @map("shopify_synced_at")
+
+  lineItems LineItem[]
+
+  @@unique([storeId, shopifyProductId], name: "uq_store_shopify_product")
+  @@index([storeId, status])
+  @@index([storeId, sku])
+  @@index([storeId, shopifySyncedAt])
+  @@map("products")
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+// =============================================================================
+// ORDERS
+// =============================================================================
+// Orders synced from Shopify via webhooks. The order is the primary aggregate
+// for the fulfillment workflow.
+
+model Order {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  // Shopify external ID — unique per store
+  shopifyOrderId String @map("shopify_order_id")
+  orderNumber    String @map("order_number")    // human-readable #1001
+
+  // Financial
+  subtotalPrice  Decimal @map("subtotal_price") @db.Decimal(12, 2)
+  totalTax       Decimal @default(0) @map("total_tax") @db.Decimal(12, 2)
+  totalShipping  Decimal @default(0) @map("total_shipping") @db.Decimal(12, 2)
+  totalDiscount  Decimal @default(0) @map("total_discount") @db.Decimal(12, 2)
+  totalPrice     Decimal @map("total_price") @db.Decimal(12, 2)
+  currencyCode   String  @default("USD") @map("currency_code") @db.VarChar(3)
+
+  // Status tracking
+  financialStatus   OrderFinancialStatus @default(PENDING) @map("financial_status")
+  fulfillmentStatus OrderFulfillmentStatus @default(UNFULFILLED) @map("fulfillment_status")
+
+  // Customer info (denormalized snapshot)
+  customerEmail     String? @map("customer_email")
+  customerFirstName String? @map("customer_first_name")
+  customerLastName  String? @map("customer_last_name")
+  customerPhone     String? @map("customer_phone")
+
+  // Shipping address (denormalized — addresses change, order snapshot must not)
+  shippingAddressLine1   String? @map("shipping_address_line1")
+  shippingAddressLine2   String? @map("shipping_address_line2")
+  shippingCity           String? @map("shipping_city")
+  shippingProvince       String? @map("shipping_province")
+  shippingPostalCode     String? @map("shipping_postal_code")
+  shippingCountryCode    String? @map("shipping_country_code") @db.VarChar(2)
+  shippingPhone          String? @map("shipping_phone")
+
+  // Cross-border customs
+  customsDeclarationValue Decimal? @map("customs_declaration_value") @db.Decimal(12, 2)
+
+  // Sync metadata
+  shopifyCreatedAt DateTime? @map("shopify_created_at")
+  shopifySyncedAt  DateTime? @map("shopify_synced_at")
+
+  // Relations
+  lineItems  LineItem[]
+  shipments  Shipment[]
+
+  @@unique([storeId, shopifyOrderId], name: "uq_store_shopify_order")
+  @@index([storeId, fulfillmentStatus])
+  @@index([storeId, financialStatus])
+  @@index([storeId, createdAt])
+  @@index([storeId, customerEmail])
+  @@index([storeId, orderNumber])
+  @@map("orders")
+}
+
+enum OrderFinancialStatus {
+  PENDING
+  AUTHORIZED
+  PARTIALLY_PAID
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  VOIDED
+}
+
+enum OrderFulfillmentStatus {
+  UNFULFILLED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  RESTOCKED
+}
+
+// =============================================================================
+// LINE ITEMS
+// =============================================================================
+
+model LineItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  productId String? @map("product_id") @db.Uuid
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Shopify external ID
+  shopifyLineItemId String @map("shopify_line_item_id")
+
+  // Snapshot at time of order (prices must not change retroactively)
+  title       String
+  variantTitle String? @map("variant_title")
+  sku         String?
+  quantity    Int
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
+
+  // Fulfillment tracking per line item
+  fulfilledQuantity Int @default(0) @map("fulfilled_quantity")
+
+  // Cross-border
+  hsCode          String? @map("hs_code") @db.VarChar(12)
+  countryOfOrigin String? @map("country_of_origin") @db.VarChar(2)
+  weight          Decimal? @db.Decimal(10, 2)
+  weightUnit      String?  @default("kg") @map("weight_unit") @db.VarChar(5)
+
+  @@unique([orderId, shopifyLineItemId], name: "uq_order_shopify_line_item")
+  @@index([orderId])
+  @@index([productId])
+  @@map("line_items")
+}
+
+// =============================================================================
+// SHIPMENTS
+// =============================================================================
+// A shipment represents a physical package being sent to the customer.
+// One order can have multiple shipments (partial fulfillment).
+
+model Shipment {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  // Carrier info
+  carrier        String?                          // e.g. "DHL", "FedEx", "PhilPost"
+  service        String?                          // e.g. "Express", "Economy"
+  trackingNumber String? @map("tracking_number")
+  trackingUrl    String? @map("tracking_url")
+
+  // Shipping label
+  labelUrl       String? @map("label_url")
+  labelFormat    String? @map("label_format") @db.VarChar(10) // "PDF", "PNG", "ZPL"
+  labelGeneratedAt DateTime? @map("label_generated_at")
+
+  // Status
+  status ShipmentStatus @default(PENDING)
+
+  // Dimensions & weight (for label generation)
+  weightGrams  Int?     @map("weight_grams")
+  lengthCm     Decimal? @map("length_cm") @db.Decimal(8, 2)
+  widthCm      Decimal? @map("width_cm") @db.Decimal(8, 2)
+  heightCm     Decimal? @map("height_cm") @db.Decimal(8, 2)
+
+  // Customs (cross-border)
+  customsDeclarationValue Decimal? @map("customs_declaration_value") @db.Decimal(12, 2)
+  customsCurrency         String?  @map("customs_currency") @db.VarChar(3)
+
+  // Timestamps
+  shippedAt   DateTime? @map("shipped_at")
+  deliveredAt DateTime? @map("delivered_at")
+
+  // External reference (carrier API response ID)
+  externalShipmentId String? @map("external_shipment_id")
+
+  @@index([storeId, status])
+  @@index([storeId, orderId])
+  @@index([orderId])
+  @@index([trackingNumber])
+  @@map("shipments")
+}
+
+enum ShipmentStatus {
+  PENDING           // Created, no label yet
+  LABEL_GENERATING  // Label generation in progress
+  LABEL_READY       // Label generated, not yet shipped
+  LABEL_FAILED      // Label generation failed
+  SHIPPED           // Handed to carrier
+  IN_TRANSIT        // Carrier confirmed pickup
+  DELIVERED         // Carrier confirmed delivery
+  FAILED            // Delivery failed
+  RETURNED          // Returned to sender
+}
+
+// =============================================================================
+// WEBHOOK ENDPOINTS (Outbound — merchant-configured)
+// =============================================================================
+// Merchants can register URLs to receive webhooks from MerchantFlow.
+// This is us SENDING webhooks, not receiving them from Shopify.
+
+model WebhookEndpoint {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  url          String                           // https://merchant.com/webhooks
+  secret       String                           // HMAC signing secret (we generate, merchant stores)
+  events       String[]                         // ["order.created", "shipment.shipped"]
+  isActive     Boolean @default(true) @map("is_active")
+
+  // Health tracking
+  failureCount     Int      @default(0) @map("failure_count")
+  lastFailedAt     DateTime? @map("last_failed_at")
+  lastSucceededAt  DateTime? @map("last_succeeded_at")
+  disabledAt       DateTime? @map("disabled_at")      // auto-disabled after too many failures
+  disabledReason   String?   @map("disabled_reason")
+
+  deliveries WebhookDelivery[]
+
+  @@index([storeId, isActive])
+  @@map("webhook_endpoints")
+}
+
+// =============================================================================
+// WEBHOOK DELIVERIES (Outbound delivery attempts)
+// =============================================================================
+
+model WebhookDelivery {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  endpointId String @map("endpoint_id") @db.Uuid
+  endpoint   WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Restrict)
+
+  eventType    String @map("event_type")         // e.g. "order.created"
+  payload      Json                               // the webhook body we sent
+  status       WebhookDeliveryStatus @default(PENDING)
+
+  // Delivery metadata
+  httpStatus   Int?    @map("http_status")
+  responseBody String? @map("response_body") @db.Text
+  attemptCount Int     @default(0) @map("attempt_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  nextRetryAt   DateTime? @map("next_retry_at")
+  completedAt   DateTime? @map("completed_at")
+  errorMessage  String?   @map("error_message") @db.Text
+
+  @@index([endpointId, status])
+  @@index([status, nextRetryAt])              // for the retry poller
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  DEAD                                        // exhausted all retries
+}
+
+// =============================================================================
+// INBOUND SHOPIFY WEBHOOKS (Deduplication)
+// =============================================================================
+// Shopify sends a unique X-Shopify-Webhook-Id header. We store it so we
+// can reject duplicates. Shopify retries on non-2xx, so duplicates are
+// expected and must be handled.
+
+model ShopifyWebhookLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  shopifyWebhookId String   @unique @map("shopify_webhook_id") // X-Shopify-Webhook-Id header
+  topic            String                                       // e.g. "orders/create"
+  shopifyDomain    String   @map("shopify_domain")
+  status           ShopifyWebhookStatus @default(RECEIVED)
+
+  // Processing metadata
+  processedAt DateTime? @map("processed_at")
+  errorMessage String?  @map("error_message") @db.Text
+
+  @@index([shopifyDomain, topic])
+  @@index([createdAt])
+  @@map("shopify_webhook_logs")
+}
+
+enum ShopifyWebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+// =============================================================================
+// IDEMPOTENCY KEYS
+// =============================================================================
+// Clients supply an Idempotency-Key header on write endpoints. We store the
+// response body so retries return the exact same response without re-executing
+// the mutation. Keys expire after 24 hours.
+//
+// Implementation: the key is scoped to (storeId + key) so different tenants
+// can use the same key string without collision.
+
+model IdempotencyKey {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  key            String                          // client-supplied key (UUID recommended)
+  httpMethod     String @map("http_method")       // POST, PUT, PATCH, DELETE
+  httpPath       String @map("http_path")         // /api/v1/orders
+  requestHash    String @map("request_hash")      // SHA-256 of request body (detect misuse)
+
+  // Stored response
+  responseStatus Int?    @map("response_status")
+  responseBody   Json?   @map("response_body")
+
+  // Lock state — prevents concurrent processing of the same key
+  lockedAt       DateTime? @map("locked_at")
+  completedAt    DateTime? @map("completed_at")
+
+  // TTL
+  expiresAt DateTime @map("expires_at")
+
+  @@unique([storeId, key], name: "uq_store_idempotency_key")
+  @@index([expiresAt])                           // for the cleanup job
+  @@map("idempotency_keys")
+}
+
+// =============================================================================
+// TRANSACTIONAL OUTBOX
+// =============================================================================
+// Domain events are written to this table in the same database transaction
+// as the aggregate mutation. A poller (OutboxPoller worker) reads unpublished
+// events and dispatches them to BullMQ queues, then marks them as published.
+//
+// This guarantees at-least-once delivery without distributed transactions.
+
+model OutboxEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  storeId String @map("store_id") @db.Uuid
+  store   Store  @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  // Event metadata
+  aggregateType String @map("aggregate_type")     // "Order", "Product", "Shipment"
+  aggregateId   String @map("aggregate_id")       // UUID of the aggregate
+  eventType     String @map("event_type")         // "order.created", "shipment.shipped"
+  payload       Json                               // serialized event data
+
+  // Publishing state
+  status        OutboxEventStatus @default(PENDING)
+  publishedAt   DateTime?         @map("published_at")
+  attempts      Int               @default(0)
+  lastError     String?           @map("last_error") @db.Text
+  nextRetryAt   DateTime?         @map("next_retry_at")
+
+  @@index([status, createdAt])                   // for the poller: WHERE status = 'PENDING' ORDER BY createdAt
+  @@index([storeId, aggregateType, aggregateId])
+  @@index([status, nextRetryAt])                 // for retry poller
+  @@map("outbox_events")
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}

@@ -1,0 +1,19 @@
+{
+  "name": "merchantflow",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "test": "turbo test",
+    "db:migrate": "turbo db:migrate --filter=@merchantflow/api",
+    "db:seed": "turbo db:seed --filter=@merchantflow/api",
+    "db:generate": "turbo db:generate --filter=@merchantflow/api",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0"
+  }
+}
