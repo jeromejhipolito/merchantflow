@@ -22,7 +22,7 @@ import { writeOutboxEvent } from "../../lib/outbox/index.js";
 // State Machine
 // ---------------------------------------------------------------------------
 
-const VALID_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
+export const VALID_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   PENDING: ["LABEL_GENERATING"],
   LABEL_GENERATING: ["LABEL_READY", "LABEL_FAILED"],
   LABEL_READY: ["SHIPPED"],
@@ -34,7 +34,7 @@ const VALID_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   RETURNED: [], // terminal
 };
 
-function assertValidTransition(from: ShipmentStatus, to: ShipmentStatus): void {
+export function assertValidTransition(from: ShipmentStatus, to: ShipmentStatus): void {
   const allowed = VALID_TRANSITIONS[from];
   if (!allowed.includes(to)) {
     throw new AppError({
