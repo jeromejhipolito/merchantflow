@@ -504,3 +504,119 @@ enum OutboxEventStatus {
   PUBLISHED
   FAILED
 }
+
+// =============================================================================
+// SAGA ORCHESTRATION
+// =============================================================================
+// Sagas coordinate multi-step async workflows with compensating transactions.
+// Each saga instance tracks the overall state; each step tracks individual
+// progress. This enables:
+// - Step-level idempotency: re-running a saga skips completed steps
+// - Saga-level idempotency: duplicate triggers return the cached result
+// - Observability: every step transition is recorded with timestamps
+// - Compensation: on failure, completed steps are rolled back in reverse order
+//
+// The saga engine stores state in PostgreSQL (not Redis) for durability.
+// The saga table is the source of truth — if Redis loses a job, the saga
+// can be resumed by re-reading its state from the database.
+
+model SagaInstance {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Saga classification
+  type      SagaType
+  status    SagaStatus @default(RUNNING)
+
+  // Tenant scope — every saga belongs to a store
+  storeId   String @map("store_id") @db.Uuid
+
+  // Idempotency key: sha256(storeId + domain-specific key)
+  // For order processing: sha256(storeId + shopifyOrderId + topic)
+  // For fulfillment: sha256(storeId + orderId + "fulfillment")
+  idempotencyKey String @unique @map("idempotency_key")
+
+  // Serialized context passed between steps
+  input     Json     @default("{}")
+  output    Json?
+
+  // Error info (populated when status = FAILED)
+  error     String?  @db.Text
+
+  // Timing
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  // Relation to steps
+  steps SagaStep[]
+
+  @@index([storeId, type])
+  @@index([status])
+  @@index([type, status])
+  @@index([storeId, idempotencyKey])
+  @@map("saga_instances")
+}
+
+model SagaStep {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Parent saga
+  sagaId String       @map("saga_id") @db.Uuid
+  saga   SagaInstance @relation(fields: [sagaId], references: [id], onDelete: Cascade)
+
+  // Step identification
+  stepName  String @map("step_name")           // e.g. "ValidatePayload", "UpsertOrder"
+  stepIndex Int    @map("step_index")           // execution order (0-based)
+
+  // Status tracking
+  status SagaStepStatus @default(PENDING)
+
+  // Idempotency: sha256(sagaInstanceId + stepName)
+  // If a step is already COMPLETED, re-execution is a no-op.
+  idempotencyKey String @unique @map("idempotency_key")
+
+  // Step-level I/O — input is the context snapshot before execution,
+  // output is the partial context returned by the step
+  input  Json?
+  output Json?
+
+  // Error details
+  error    String? @db.Text
+
+  // Retry tracking
+  attempts Int @default(0)
+
+  // Timing
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([sagaId, stepIndex])
+  @@index([sagaId, status])
+  @@map("saga_steps")
+}
+
+enum SagaType {
+  ORDER_PROCESSING
+  FULFILLMENT
+}
+
+enum SagaStatus {
+  RUNNING
+  COMPLETED
+  COMPENSATING
+  COMPENSATED
+  FAILED
+}
+
+enum SagaStepStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  COMPENSATING
+  COMPENSATED
+  SKIPPED
+}

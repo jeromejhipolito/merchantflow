@@ -6,7 +6,7 @@
 // Run:  pnpm db:seed  (or:  npx tsx prisma/seed.ts)
 //
 // Data:
-//   2 stores (Tropical Threads PH, Manila Craft Co.)
+//   2 stores (Kultura Filipino, Pasalubong Box PH)
 //   25 orders across both stores with line items
 //   8 shipments in various statuses
 //   Webhook endpoints per store
@@ -59,12 +59,12 @@ async function main() {
   const store1 = await prisma.store.create({
     data: {
       id: store1Id,
-      shopifyDomain: "tropical-threads-ph.myshopify.com",
+      shopifyDomain: "kultura-filipino.myshopify.com",
       shopifyAccessToken: "encrypted:mock-token-store-1",
       shopifyScopes: "read_products,read_orders,write_fulfillments",
-      shopifyWebhookSecret: "whsec_tropicalthreads_mock_secret",
-      name: "Tropical Threads PH",
-      email: "hello@tropicalthreadsph.com",
+      shopifyWebhookSecret: "whsec_kulturafilipino_mock_secret",
+      name: "Kultura Filipino",
+      email: "hello@kulturafilipino.ph",
       currency: "PHP",
       timezone: "Asia/Manila",
       status: "ACTIVE",
@@ -74,12 +74,12 @@ async function main() {
   const store2 = await prisma.store.create({
     data: {
       id: store2Id,
-      shopifyDomain: "manila-craft-co.myshopify.com",
+      shopifyDomain: "pasalubong-box-ph.myshopify.com",
       shopifyAccessToken: "encrypted:mock-token-store-2",
       shopifyScopes: "read_products,read_orders,write_fulfillments",
-      shopifyWebhookSecret: "whsec_manilacraftco_mock_secret",
-      name: "Manila Craft Co.",
-      email: "support@manilacraftco.com",
+      shopifyWebhookSecret: "whsec_pasalubongboxph_mock_secret",
+      name: "Pasalubong Box PH",
+      email: "support@pasalubongboxph.com",
       currency: "USD",
       timezone: "Asia/Manila",
       status: "ACTIVE",
@@ -97,13 +97,13 @@ async function main() {
       data: {
         storeId: store1Id,
         shopifyProductId: "7001000001",
-        title: "Barong Tagalog - Slim Fit",
+        title: "Barong Tagalog - Jusi Fabric",
         description:
-          "Hand-embroidered pinya-silk barong with classic Filipino design",
-        vendor: "Tropical Threads PH",
+          "Classic hand-embroidered jusi barong for formal occasions",
+        vendor: "Kultura Filipino",
         productType: "Formal Wear",
         status: "ACTIVE",
-        sku: "BT-SLIM-001",
+        sku: "BRG-JSI-001",
         barcode: "8901234567890",
         inventoryQuantity: 45,
         weight: "0.35",
@@ -119,12 +119,12 @@ async function main() {
       data: {
         storeId: store1Id,
         shopifyProductId: "7001000002",
-        title: "Filipiniana Dress - Maria Clara",
-        description: "Elegant Maria Clara inspired butterfly sleeve dress",
-        vendor: "Tropical Threads PH",
+        title: "Filipiniana Butterfly Sleeve Dress",
+        description: "Modern Maria Clara-inspired butterfly sleeve terno dress",
+        vendor: "Kultura Filipino",
         productType: "Formal Wear",
         status: "ACTIVE",
-        sku: "FD-MC-001",
+        sku: "FLP-BTF-001",
         inventoryQuantity: 28,
         weight: "0.50",
         weightUnit: "kg",
@@ -138,18 +138,19 @@ async function main() {
       data: {
         storeId: store1Id,
         shopifyProductId: "7001000003",
-        title: "Terno Blouse - Contemporary",
-        description: "Modern take on the traditional terno with puff sleeves",
-        vendor: "Tropical Threads PH",
-        productType: "Casual Wear",
+        title: "Inabel Woven Blanket - Queen",
+        description:
+          "Handwoven Ilocos inabel cotton blanket, geometric pattern",
+        vendor: "Kultura Filipino",
+        productType: "Home Textile",
         status: "ACTIVE",
-        sku: "TB-CON-001",
+        sku: "INB-QN-001",
         inventoryQuantity: 60,
-        weight: "0.25",
+        weight: "1.20",
         weightUnit: "kg",
-        price: "2200.00",
+        price: "3200.00",
         currencyCode: "PHP",
-        hsCode: "6206.30",
+        hsCode: "6301.30",
         countryOfOrigin: "PH",
       },
     }),
@@ -157,12 +158,13 @@ async function main() {
       data: {
         storeId: store1Id,
         shopifyProductId: "7001000004",
-        title: "Abaca Woven Clutch",
-        description: "Handwoven abaca fiber clutch bag with brass clasp",
-        vendor: "Tropical Threads PH",
+        title: "Abaca Woven Clutch Bag",
+        description:
+          "Handwoven abaca fiber clutch with shell button closure",
+        vendor: "Kultura Filipino",
         productType: "Accessories",
         status: "ACTIVE",
-        sku: "AW-CLT-001",
+        sku: "ABC-CLT-001",
         inventoryQuantity: 100,
         weight: "0.15",
         weightUnit: "kg",
@@ -179,20 +181,20 @@ async function main() {
       data: {
         storeId: store2Id,
         shopifyProductId: "8001000001",
-        title: "Capiz Shell Chandelier - 3 Tier",
+        title: "Dried Philippine Mango - 500g",
         description:
-          "Hand-assembled Capiz shell chandelier, three-tier design, brass hardware",
-        vendor: "Manila Craft Co.",
-        productType: "Home Decor",
+          "7D brand-style premium dried mangoes from Cebu",
+        vendor: "Pasalubong Box PH",
+        productType: "Dried Fruit",
         status: "ACTIVE",
-        sku: "CSC-3T-001",
-        inventoryQuantity: 12,
-        weight: "3.50",
+        sku: "DPM-500-001",
+        inventoryQuantity: 200,
+        weight: "0.55",
         weightUnit: "kg",
-        price: "189.99",
-        compareAtPrice: "249.99",
+        price: "12.99",
+        compareAtPrice: "15.99",
         currencyCode: "USD",
-        hsCode: "9405.10",
+        hsCode: "0804.50",
         countryOfOrigin: "PH",
       },
     }),
@@ -200,18 +202,19 @@ async function main() {
       data: {
         storeId: store2Id,
         shopifyProductId: "8001000002",
-        title: "Rattan Basket - Large",
-        description: "Hand-woven rattan storage basket with leather handles",
-        vendor: "Manila Craft Co.",
-        productType: "Home Storage",
+        title: "Polvoron Assorted Box (24pc)",
+        description:
+          "Classic Filipino powdered milk candy, assorted flavors (classic, ube, cookies & cream)",
+        vendor: "Pasalubong Box PH",
+        productType: "Confectionery",
         status: "ACTIVE",
-        sku: "RB-LG-001",
-        inventoryQuantity: 35,
-        weight: "1.20",
+        sku: "PLV-24P-001",
+        inventoryQuantity: 150,
+        weight: "0.45",
         weightUnit: "kg",
-        price: "64.99",
+        price: "18.99",
         currencyCode: "USD",
-        hsCode: "4602.12",
+        hsCode: "1905.31",
         countryOfOrigin: "PH",
       },
     }),
@@ -219,19 +222,19 @@ async function main() {
       data: {
         storeId: store2Id,
         shopifyProductId: "8001000003",
-        title: "Coconut Shell Bowl Set (4pc)",
+        title: "Chicharon Bulacan - Original (250g)",
         description:
-          "Polished coconut shell serving bowls with lacquer finish",
-        vendor: "Manila Craft Co.",
-        productType: "Kitchenware",
+          "Crispy pork cracklings from Bulacan province",
+        vendor: "Pasalubong Box PH",
+        productType: "Snack",
         status: "ACTIVE",
-        sku: "CSB-4P-001",
-        inventoryQuantity: 50,
-        weight: "0.80",
+        sku: "CCR-250-001",
+        inventoryQuantity: 180,
+        weight: "0.30",
         weightUnit: "kg",
-        price: "39.99",
+        price: "8.99",
         currencyCode: "USD",
-        hsCode: "4419.12",
+        hsCode: "1602.49",
         countryOfOrigin: "PH",
       },
     }),
@@ -248,25 +251,35 @@ async function main() {
   const firstNames = [
     "Maria", "Juan", "Ana", "Carlos", "Rosa", "Miguel", "Sofia", "Jose",
     "Luz", "Pedro", "Elena", "Ramon", "Isabella", "David", "Carmen",
-    "Sarah", "James", "Emily", "Michael", "Olivia", "Daniel", "Laura",
-    "Mark", "Grace", "Kevin",
+    "Patricia", "Angelo", "Katrina", "Rafael", "Jasmine", "Paolo", "Bianca",
+    "Marco", "Gabriella", "Kevin",
   ];
   const lastNames = [
     "Santos", "Reyes", "Cruz", "Garcia", "Torres", "Ramos", "Dela Cruz",
     "Villanueva", "Aquino", "Bautista", "Gonzales", "Rivera", "Martinez",
-    "Lopez", "Smith", "Johnson", "Williams", "Brown", "Jones", "Davis",
-    "Wilson", "Anderson", "Taylor", "Thomas", "Moore",
+    "Lopez", "Fernandez", "Mendoza", "Dizon", "Castillo", "Salvador",
+    "Navarro", "Mercado", "Alcantara", "Corpuz", "Tolentino", "Manalo",
   ];
-  const cities = [
+
+  // PH cities for store 1 orders
+  const phCities = [
     "Makati City", "Cebu City", "Quezon City", "Davao City", "Pasig City",
-    "San Francisco", "New York", "Los Angeles", "Chicago", "Seattle",
-    "London", "Singapore", "Tokyo", "Sydney", "Toronto",
+    "Taguig City", "BGC", "Mandaluyong", "San Juan", "Antipolo",
+    "Parañaque", "Las Piñas", "Caloocan", "Marikina", "Pasay City",
   ];
-  const countryCodes = [
-    "PH", "PH", "PH", "PH", "PH",
+
+  // International cities for store 2 orders
+  const intlCities = [
+    "Los Angeles", "New York", "San Francisco", "Chicago", "Houston",
+    "Toronto", "Vancouver", "London", "Dubai", "Singapore",
+    "Sydney", "Melbourne", "Hong Kong", "Tokyo", "Riyadh",
+  ];
+  const intlCountryCodes = [
     "US", "US", "US", "US", "US",
-    "GB", "SG", "JP", "AU", "CA",
+    "CA", "CA", "GB", "AE", "SG",
+    "AU", "AU", "HK", "JP", "SA",
   ];
+
   const financialStatuses = [
     "PAID", "PAID", "PAID", "PAID", "PAID", "PAID", "PAID", "PAID",
     "AUTHORIZED", "PENDING", "PARTIALLY_REFUNDED",
@@ -292,9 +305,19 @@ async function main() {
 
     const firstName = firstNames[i]!;
     const lastName = lastNames[i]!;
-    const cityIdx = i % cities.length;
-    const city = cities[cityIdx]!;
-    const countryCode = countryCodes[cityIdx]!;
+
+    // Store 1 uses PH cities, Store 2 uses international cities
+    let city: string;
+    let countryCode: string;
+    if (isStore1) {
+      city = phCities[i % phCities.length]!;
+      countryCode = "PH";
+    } else {
+      const intlIdx = (i - 15) % intlCities.length;
+      city = intlCities[intlIdx]!;
+      countryCode = intlCountryCodes[intlIdx]!;
+    }
+
     const financialStatus = randomElement([...financialStatuses]);
     const fulfillmentStatus = randomElement([...fulfillmentStatuses]);
 
@@ -340,6 +363,18 @@ async function main() {
     const discount = i % 5 === 0 ? subtotal * 0.1 : 0;
     const totalPrice = subtotal + tax + shipping - discount;
 
+    // Province/state depends on country
+    let province: string;
+    if (countryCode === "PH") {
+      province = "Metro Manila";
+    } else if (countryCode === "US") {
+      province = city === "Los Angeles" || city === "San Francisco" ? "California" : city === "New York" ? "New York" : city === "Chicago" ? "Illinois" : "Texas";
+    } else if (countryCode === "CA") {
+      province = city === "Toronto" ? "Ontario" : "British Columbia";
+    } else {
+      province = city;
+    }
+
     await prisma.order.create({
       data: {
         id: orderId,
@@ -357,14 +392,14 @@ async function main() {
         customerEmail: `${firstName.toLowerCase()}.${lastName.toLowerCase().replace(" ", "")}@email.com`,
         customerFirstName: firstName,
         customerLastName: lastName,
-        customerPhone: `+63${900 + i}0001234`,
+        customerPhone: isStore1 ? `+63${900 + i}0001234` : `+1${200 + i}5551234`,
         shippingAddressLine1: `${100 + i} Main Street`,
         shippingAddressLine2: i % 3 === 0 ? `Unit ${i + 1}` : null,
         shippingCity: city,
-        shippingProvince: countryCode === "PH" ? "Metro Manila" : city,
+        shippingProvince: province,
         shippingPostalCode: `${1000 + (i * 11) % 9000}`,
         shippingCountryCode: countryCode,
-        shippingPhone: `+63${900 + i}0001234`,
+        shippingPhone: isStore1 ? `+63${900 + i}0001234` : `+1${200 + i}5551234`,
         shopifyCreatedAt: daysAgo(25 - i),
         shopifySyncedAt: daysAgo(25 - i),
         lineItems: {
@@ -392,18 +427,16 @@ async function main() {
   // -------------------------------------------------------------------------
   // 4. Shipments (8 total in various statuses)
   // -------------------------------------------------------------------------
-  const carriers = ["DHL Express", "FedEx", "PhilPost", "LBC Express"];
-  const services = ["Express", "Economy", "Standard", "Priority"];
 
   const shipmentConfigs = [
-    { storeId: store1Id, orderId: ordersForStore1[0]!, status: "DELIVERED" as const, carrier: "DHL Express", service: "Express" },
-    { storeId: store1Id, orderId: ordersForStore1[1]!, status: "SHIPPED" as const, carrier: "FedEx", service: "Priority" },
-    { storeId: store1Id, orderId: ordersForStore1[2]!, status: "LABEL_READY" as const, carrier: "PhilPost", service: "Standard" },
-    { storeId: store1Id, orderId: ordersForStore1[3]!, status: "LABEL_GENERATING" as const, carrier: "LBC Express", service: "Economy" },
-    { storeId: store1Id, orderId: ordersForStore1[4]!, status: "PENDING" as const, carrier: "DHL Express", service: "Express" },
-    { storeId: store2Id, orderId: ordersForStore2[0]!, status: "IN_TRANSIT" as const, carrier: "FedEx", service: "Express" },
-    { storeId: store2Id, orderId: ordersForStore2[1]!, status: "LABEL_READY" as const, carrier: "DHL Express", service: "Priority" },
-    { storeId: store2Id, orderId: ordersForStore2[2]!, status: "LABEL_FAILED" as const, carrier: "PhilPost", service: "Economy" },
+    { storeId: store1Id, orderId: ordersForStore1[0]!, status: "DELIVERED" as const, carrier: "LBC Express", service: "Express" },
+    { storeId: store1Id, orderId: ordersForStore1[1]!, status: "SHIPPED" as const, carrier: "J&T Express PH", service: "Standard" },
+    { storeId: store1Id, orderId: ordersForStore1[2]!, status: "LABEL_READY" as const, carrier: "JRS Express", service: "Standard" },
+    { storeId: store1Id, orderId: ordersForStore1[3]!, status: "LABEL_GENERATING" as const, carrier: "Flash Express", service: "Economy" },
+    { storeId: store1Id, orderId: ordersForStore1[4]!, status: "PENDING" as const, carrier: "Ninja Van PH", service: "Standard" },
+    { storeId: store2Id, orderId: ordersForStore2[0]!, status: "IN_TRANSIT" as const, carrier: "DHL Express", service: "Express" },
+    { storeId: store2Id, orderId: ordersForStore2[1]!, status: "LABEL_READY" as const, carrier: "FedEx", service: "Priority" },
+    { storeId: store2Id, orderId: ordersForStore2[2]!, status: "LABEL_FAILED" as const, carrier: "DHL Express", service: "Economy" },
   ];
 
   for (let i = 0; i < shipmentConfigs.length; i++) {
@@ -450,7 +483,7 @@ async function main() {
   const endpoint1 = await prisma.webhookEndpoint.create({
     data: {
       storeId: store1Id,
-      url: "https://hooks.tropicalthreadsph.com/merchantflow",
+      url: "https://hooks.kulturafilipino.ph/merchantflow",
       secret: "whsec_" + crypto.randomUUID().replace(/-/g, ""),
       events: [
         "order.synced",
@@ -467,7 +500,7 @@ async function main() {
   const endpoint2 = await prisma.webhookEndpoint.create({
     data: {
       storeId: store1Id,
-      url: "https://erp.tropicalthreadsph.com/api/webhooks",
+      url: "https://erp.kulturafilipino.ph/api/webhooks",
       secret: "whsec_" + crypto.randomUUID().replace(/-/g, ""),
       events: ["order.synced", "shipment.delivered"],
       isActive: true,
@@ -480,7 +513,7 @@ async function main() {
   const endpoint3 = await prisma.webhookEndpoint.create({
     data: {
       storeId: store2Id,
-      url: "https://api.manilacraftco.com/webhooks/merchantflow",
+      url: "https://api.pasalubongboxph.com/webhooks/merchantflow",
       secret: "whsec_" + crypto.randomUUID().replace(/-/g, ""),
       events: [
         "order.synced",
@@ -501,7 +534,7 @@ async function main() {
   await prisma.webhookEndpoint.create({
     data: {
       storeId: store2Id,
-      url: "https://old-system.manilacraftco.com/hooks",
+      url: "https://old-system.pasalubongboxph.com/hooks",
       secret: "whsec_" + crypto.randomUUID().replace(/-/g, ""),
       events: ["order.synced"],
       isActive: false,
@@ -573,28 +606,28 @@ async function main() {
       {
         shopifyWebhookId: `wh_${randomId()}`,
         topic: "orders/create",
-        shopifyDomain: "tropical-threads-ph.myshopify.com",
+        shopifyDomain: "kultura-filipino.myshopify.com",
         status: "PROCESSED",
         processedAt: hoursAgo(12),
       },
       {
         shopifyWebhookId: `wh_${randomId()}`,
         topic: "orders/updated",
-        shopifyDomain: "tropical-threads-ph.myshopify.com",
+        shopifyDomain: "kultura-filipino.myshopify.com",
         status: "PROCESSED",
         processedAt: hoursAgo(6),
       },
       {
         shopifyWebhookId: `wh_${randomId()}`,
         topic: "orders/create",
-        shopifyDomain: "manila-craft-co.myshopify.com",
+        shopifyDomain: "pasalubong-box-ph.myshopify.com",
         status: "PROCESSED",
         processedAt: hoursAgo(3),
       },
       {
         shopifyWebhookId: `wh_${randomId()}`,
         topic: "products/update",
-        shopifyDomain: "tropical-threads-ph.myshopify.com",
+        shopifyDomain: "kultura-filipino.myshopify.com",
         status: "FAILED",
         errorMessage: "Product not found in local catalog",
       },
@@ -631,7 +664,7 @@ async function main() {
         payload: {
           shipmentId: "mock",
           orderId: ordersForStore1[0],
-          carrier: "DHL Express",
+          carrier: "LBC Express",
         },
         status: "PUBLISHED",
         publishedAt: hoursAgo(10),

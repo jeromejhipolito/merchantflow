@@ -4,7 +4,7 @@ services:
     container_name: merchantflow-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: merchantflow
       POSTGRES_PASSWORD: merchantflow_dev
@@ -22,7 +22,7 @@ services:
     container_name: merchantflow-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6381:6379"
     volumes:
       - redis_data:/data
     healthcheck:

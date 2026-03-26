@@ -63,6 +63,17 @@ export function createIdempotencyHook(
       return;
     }
 
+    // Skip idempotency for public endpoints (webhooks, health, auth)
+    // These have their own deduplication mechanisms
+    const path = request.url.split("?")[0] ?? "";
+    if (
+      path.startsWith("/webhooks/") ||
+      path.startsWith("/health") ||
+      path.startsWith("/auth/")
+    ) {
+      return;
+    }
+
     const idempotencyKey = request.headers["idempotency-key"] as
       | string
       | undefined;
