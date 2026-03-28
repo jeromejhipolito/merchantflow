@@ -1,9 +1,3 @@
-// =============================================================================
-// Shopify OAuth Routes
-// =============================================================================
-// GET  /auth/shopify           — Initiates OAuth flow
-// GET  /auth/shopify/callback  — Handles OAuth callback, exchanges code for token
-
 import type { FastifyInstance } from "fastify";
 import {
   verifyShopifyOAuthHmac,
@@ -14,7 +8,6 @@ import {
 import { AppError, ErrorCode } from "../lib/errors/index.js";
 import { StoreService } from "../modules/store/store.service.js";
 
-// In-memory nonce store. In production, use Redis with TTL.
 const nonceStore = new Map<string, { shop: string; createdAt: number }>();
 
 export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
@@ -28,9 +21,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     apiVersion: "2024-01",
   };
 
-  // -------------------------------------------------------------------------
-  // Step 1: Initiate OAuth
-  // -------------------------------------------------------------------------
   app.get<{
     Querystring: { shop?: string; hmac?: string; timestamp?: string };
   }>("/shopify", async (request, reply) => {
@@ -43,7 +33,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Validate shop domain format (must be *.myshopify.com)
     if (!/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/.test(shop)) {
       throw new AppError({
         code: ErrorCode.VALIDATION_ERROR,
@@ -51,7 +40,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Verify HMAC if present (Shopify signs the install request)
     if (hmac) {
       const isValid = verifyShopifyOAuthHmac(
         request.query as Record<string, string>,
@@ -65,11 +53,9 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Generate nonce for CSRF protection
     const nonce = generateNonce();
     nonceStore.set(nonce, { shop, createdAt: Date.now() });
 
-    // Clean up old nonces (> 10 minutes)
     for (const [key, value] of nonceStore) {
       if (Date.now() - value.createdAt > 600_000) nonceStore.delete(key);
     }
@@ -86,9 +72,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     return reply.redirect(authUrl);
   });
 
-  // -------------------------------------------------------------------------
-  // Step 2: Handle OAuth callback
-  // -------------------------------------------------------------------------
   app.get<{
     Querystring: {
       code?: string;
@@ -107,7 +90,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Verify HMAC
     const isValid = verifyShopifyOAuthHmac(
       request.query as Record<string, string>,
       shopifyConfig.apiSecret
@@ -119,7 +101,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Verify nonce (CSRF protection)
     const nonceData = nonceStore.get(state);
     if (!nonceData || nonceData.shop !== shop) {
       throw new AppError({
@@ -129,20 +110,18 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
     nonceStore.delete(state);
 
-    // Exchange code for access token
     const { accessToken, scope } = await exchangeCodeForToken(
       shop,
       code,
       shopifyConfig
     );
 
-    // Create or re-activate the store
     const store = await storeService.createOrReinstall({
       shopifyDomain: shop,
       shopifyAccessToken: accessToken,
       shopifyScopes: scope,
       name: shop.replace(".myshopify.com", ""),
-      email: "", // fetched from Shopify in a follow-up sync job
+      email: "",
     });
 
     request.log.info(
@@ -150,7 +129,6 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       "Shopify OAuth completed — store installed"
     );
 
-    // Redirect to the app's embedded UI (or a success page)
     return reply.redirect(
       `${env.SHOPIFY_APP_URL}/app?shop=${shop}&installed=true`
     );

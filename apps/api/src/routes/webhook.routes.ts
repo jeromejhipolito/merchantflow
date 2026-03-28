@@ -1,13 +1,3 @@
-// =============================================================================
-// Webhook Endpoint Management Routes
-// =============================================================================
-// Merchants use these routes to configure their webhook endpoints.
-// We will deliver events to these URLs when domain events occur.
-//
-// POST /api/v1/webhooks — Register a new webhook endpoint
-// GET  /api/v1/webhooks — List registered webhook endpoints
-// DELETE /api/v1/webhooks/:endpointId — Deactivate a webhook endpoint
-
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { WebhookService } from "../modules/webhook/webhook.service.js";
@@ -33,9 +23,6 @@ export async function registerWebhookRoutes(
   const prisma = app.prisma;
   const webhookService = new WebhookService(prisma);
 
-  // -------------------------------------------------------------------------
-  // POST /api/v1/webhooks — Register a webhook endpoint
-  // -------------------------------------------------------------------------
   app.post<{
     Body: {
       url: string;
@@ -62,7 +49,6 @@ export async function registerWebhookRoutes(
     async (request, reply) => {
       const storeId = request.storeId;
 
-      // Validate URL is HTTPS in production
       if (
         process.env.NODE_ENV === "production" &&
         !request.body.url.startsWith("https://")
@@ -73,7 +59,6 @@ export async function registerWebhookRoutes(
         );
       }
 
-      // Validate event types
       const invalidEvents = request.body.events.filter(
         (e) => !VALID_EVENT_TYPES.includes(e)
       );
@@ -84,7 +69,6 @@ export async function registerWebhookRoutes(
         );
       }
 
-      // Generate a signing secret for this endpoint
       const secret = randomBytes(32).toString("hex");
 
       const endpoint = await webhookService.createEndpoint(storeId, {
@@ -93,8 +77,6 @@ export async function registerWebhookRoutes(
         events: request.body.events,
       });
 
-      // Return the secret ONCE — the merchant must store it.
-      // We never return the secret again after creation.
       return reply.status(201).send({
         data: {
           id: endpoint.id,
@@ -102,8 +84,7 @@ export async function registerWebhookRoutes(
           events: endpoint.events,
           isActive: endpoint.isActive,
           createdAt: endpoint.createdAt,
-          // This is the ONLY time we expose the signing secret
-          secret,
+          secret, // only exposed on creation
         },
         message:
           "Webhook endpoint registered. Save the signing secret — " +
@@ -112,14 +93,10 @@ export async function registerWebhookRoutes(
     }
   );
 
-  // -------------------------------------------------------------------------
-  // GET /api/v1/webhooks — List webhook endpoints
-  // -------------------------------------------------------------------------
   app.get("/", async (request, reply) => {
     const storeId = request.storeId;
     const endpoints = await webhookService.listEndpoints(storeId);
 
-    // Strip secrets from the response — never expose after creation
     const sanitized = endpoints.map((e) => ({
       id: e.id,
       url: e.url,
@@ -136,9 +113,6 @@ export async function registerWebhookRoutes(
     return reply.status(200).send({ data: sanitized });
   });
 
-  // -------------------------------------------------------------------------
-  // DELETE /api/v1/webhooks/:endpointId — Deactivate a webhook endpoint
-  // -------------------------------------------------------------------------
   app.delete<{ Params: { endpointId: string } }>(
     "/:endpointId",
     {

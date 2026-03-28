@@ -1,8 +1,3 @@
-// =============================================================================
-// Environment Configuration
-// 12-Factor: config in env vars, validated at startup, fail fast on missing.
-// =============================================================================
-
 import { z } from "zod";
 
 const EnvSchema = z.object({

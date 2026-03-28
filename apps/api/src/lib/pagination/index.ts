@@ -1,35 +1,17 @@
-// =============================================================================
-// Cursor-Based Pagination
-// =============================================================================
-// We use cursor pagination (not offset) because:
-// 1. Stable results when new records are inserted during paging
-// 2. No OFFSET performance degradation on large tables
-// 3. Mobile-friendly (no page count, just "load more")
-//
-// Cursor is the `id` (UUID) of the last item. Prisma's cursor API handles this.
-//
-// API contract:
-//   Request:  ?cursor=<uuid>&limit=20
-//   Response: { data: [...], pagination: { cursor, hasMore, total? } }
-
 export interface PaginationParams {
-  cursor?: string; // UUID of last item (exclusive — start after this)
-  limit: number; // clamped to [1, 100], default 20
+  cursor?: string;
+  limit: number;
 }
 
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: {
-    cursor: string | null; // null means no more pages
+    cursor: string | null;
     hasMore: boolean;
-    total?: number; // optional — expensive on large tables, only include when cheap
+    total?: number;
   };
 }
 
-/**
- * Parses and validates pagination query parameters.
- * Clamps limit to [1, 100] to prevent unbounded result sets.
- */
 export function parsePaginationParams(query: {
   cursor?: string;
   limit?: string;
@@ -45,10 +27,6 @@ export function parsePaginationParams(query: {
   };
 }
 
-/**
- * Builds the pagination response object.
- * We fetch limit + 1 items to determine hasMore without a COUNT query.
- */
 export function buildPaginatedResponse<T extends { id: string }>(
   items: T[],
   limit: number,
@@ -68,16 +46,12 @@ export function buildPaginatedResponse<T extends { id: string }>(
   };
 }
 
-/**
- * Builds Prisma cursor/take args from pagination params.
- * Fetches limit + 1 to detect hasMore.
- */
 export function buildPrismaPaginationArgs(params: PaginationParams) {
   return {
-    take: params.limit + 1, // +1 to detect hasMore
+    take: params.limit + 1,
     ...(params.cursor && {
       cursor: { id: params.cursor },
-      skip: 1, // skip the cursor record itself
+      skip: 1,
     }),
     orderBy: { createdAt: "desc" as const },
   };

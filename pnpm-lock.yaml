@@ -26,9 +26,6 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^5.2.0
         version: 5.2.5
-      '@merchantflow/saga-engine':
-        specifier: workspace:*
-        version: link:../../packages/saga-engine
       '@merchantflow/shared-schemas':
         specifier: workspace:*
         version: link:../../packages/shared-schemas
@@ -59,6 +56,9 @@ importers:
       pino-pretty:
         specifier: ^13.0.0
         version: 13.1.3
+      saga-engine-ts:
+        specifier: ^0.1.0
+        version: 0.1.0
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -157,15 +157,6 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
-
-  packages/saga-engine:
-    devDependencies:
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.0.0
-        version: 3.2.4(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/shared-schemas:
     dependencies:
@@ -2072,6 +2063,10 @@ packages:
   safe-stable-stringify@2.5.0:
     resolution: {integrity: sha512-b3rppTKm9T+PsVCBEOUR46GWI7fdOs00VKZ1+9c1EWDaDMvjQc6tUwuFyIprgGgTcWoVHSKrU8H31ZHA2e0RHA==}
     engines: {node: '>=10'}
+
+  saga-engine-ts@0.1.0:
+    resolution: {integrity: sha512-IV6uTkPWMKBttGJ2PEQ5lWrAJNLGhLSnRtMVwZBELZNc5vpmsUTtBjFAfE24vTSKgRgFXdjQdMHSPUf0Kr0EvQ==}
+    engines: {node: '>=18'}
 
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
@@ -4085,6 +4080,8 @@ snapshots:
       ret: 0.5.0
 
   safe-stable-stringify@2.5.0: {}
+
+  saga-engine-ts@0.1.0: {}
 
   scheduler@0.27.0: {}
 

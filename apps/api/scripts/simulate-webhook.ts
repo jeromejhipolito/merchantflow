@@ -1,28 +1,9 @@
 #!/usr/bin/env npx tsx
-// =============================================================================
-// MerchantFlow — Shopify Webhook Simulator
-// =============================================================================
-// Simulates Shopify sending a webhook to MerchantFlow.
-// Signs the payload with HMAC-SHA256 (exactly like Shopify does).
-//
-// Usage:
-//   npx tsx scripts/simulate-webhook.ts                  # orders/create
-//   npx tsx scripts/simulate-webhook.ts orders/updated   # specific topic
-//   npx tsx scripts/simulate-webhook.ts orders/fulfilled
-//
-// This script:
-// 1. Generates a realistic Shopify order payload
-// 2. Signs it with the app's SHOPIFY_API_SECRET (HMAC-SHA256, base64)
-// 3. Sends it to POST /webhooks/shopify with all required headers
-// 4. Shows the server response and processing result
 
 import { createHmac, randomUUID } from "node:crypto";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3005";
 
-// Per-store webhook secrets (from seed data)
-// In production, each store has its own secret set during Shopify OAuth install.
-// The webhook handler verifies using the store-specific secret first.
 const STORE_SECRETS: Record<string, string> = {
   "kultura-filipino.myshopify.com": "whsec_kulturafilipino_mock_secret",
   "pasalubong-box-ph.myshopify.com": "whsec_pasalubongboxph_mock_secret",
@@ -32,10 +13,6 @@ const SHOP_DOMAIN = process.argv[3] ?? "kultura-filipino.myshopify.com";
 const SHOPIFY_SECRET = STORE_SECRETS[SHOP_DOMAIN] ?? "mock-shopify-api-secret";
 
 const topic = process.argv[2] ?? "orders/create";
-
-// ---------------------------------------------------------------------------
-// Sample Shopify payloads (realistic shapes)
-// ---------------------------------------------------------------------------
 
 function generateOrderPayload(topic: string) {
   const orderId = Math.floor(Math.random() * 900000000) + 100000000;
@@ -121,16 +98,11 @@ function generateOrderPayload(topic: string) {
   return base;
 }
 
-// ---------------------------------------------------------------------------
-// Sign and send
-// ---------------------------------------------------------------------------
-
 async function main() {
   const webhookId = randomUUID();
   const payload = generateOrderPayload(topic);
   const body = JSON.stringify(payload);
 
-  // Sign exactly like Shopify does: HMAC-SHA256 of raw body, base64 encoded
   const hmac = createHmac("sha256", SHOPIFY_SECRET)
     .update(body)
     .digest("base64");
@@ -166,7 +138,6 @@ async function main() {
       console.log("Webhook accepted! The order is now being processed by BullMQ workers.");
       console.log("Check the API logs to see the processing pipeline.\n");
 
-      // Try sending the SAME webhook again to demo idempotency
       console.log("--- Sending SAME webhook again (idempotency test) ---\n");
 
       const dupeResponse = await fetch(`${API_URL}/webhooks/shopify`, {
@@ -188,7 +159,6 @@ async function main() {
       console.log("\nDuplicate webhook was idempotently ignored (not re-processed).");
     }
 
-    // Also test with tampered HMAC
     console.log("\n--- Sending webhook with INVALID HMAC (security test) ---\n");
 
     const badResponse = await fetch(`${API_URL}/webhooks/shopify`, {

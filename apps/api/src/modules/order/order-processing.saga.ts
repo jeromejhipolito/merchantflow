@@ -1,53 +1,14 @@
-// =============================================================================
-// Order Processing Saga
-// =============================================================================
-// Orchestrates the full order ingestion pipeline triggered by Shopify
-// `orders/create` or `orders/updated` webhooks.
-//
-// Steps:
-//   1. ValidatePayload  — Parse and validate the Shopify order payload
-//   2. UpsertOrder      — Upsert order + line items in a Prisma transaction
-//   3. UpdateInventory   — Adjust product inventory based on line items
-//   4. DeliverWebhooks   — Dispatch "order.synced" outbox event for delivery
-//
-// Compensation:
-//   - ValidatePayload: no-op (pure transformation, nothing to undo)
-//   - UpsertOrder: mark order sync timestamp as null (signals sync failure)
-//   - UpdateInventory: reverse all inventory adjustments
-//   - DeliverWebhooks: no-op (best-effort delivery)
-//
-// Context shape: the saga accumulates data as it progresses. Each step
-// reads what it needs from the context and adds its output.
-//
-// Note: step functions are factories that close over the PrismaClient.
-// This keeps the saga engine framework-agnostic while still allowing
-// steps to perform database operations.
-
 import type { PrismaClient } from "@prisma/client";
 import type { SagaDefinition, SagaStepDefinition } from "../../lib/saga/index.js";
 import { writeOutboxEvent } from "../../lib/outbox/index.js";
 
-// ---------------------------------------------------------------------------
-// Context Type
-// ---------------------------------------------------------------------------
-
-/**
- * The context object that flows through all steps of the order processing saga.
- *
- * Fields are added progressively — early steps add fields that later steps
- * consume. All downstream fields are optional at the type level because the
- * context is built up incrementally, but runtime invariants are enforced by
- * step ordering.
- */
 export interface OrderProcessingContext extends Record<string, unknown> {
-  // --- Input (provided at saga start) ---
   storeId: string;
   shopifyOrderId: string;
-  topic: string; // "orders/create" or "orders/updated"
+  topic: string;
   webhookId: string;
   shopifyPayload: Record<string, any>;
 
-  // --- Added by ValidatePayload ---
   orderNumber?: string;
   subtotalPrice?: string;
   totalTax?: string;
@@ -82,10 +43,7 @@ export interface OrderProcessingContext extends Record<string, unknown> {
   }>;
   shopifyCreatedAt?: string;
 
-  // --- Added by UpsertOrder ---
   orderId?: string;
-
-  // --- Added by UpdateInventory ---
   inventoryAdjustments?: Array<{
     productId: string;
     sku: string;
@@ -93,15 +51,6 @@ export interface OrderProcessingContext extends Record<string, unknown> {
   }>;
 }
 
-// ---------------------------------------------------------------------------
-// Step Factory
-// ---------------------------------------------------------------------------
-
-/**
- * Creates the order processing saga definition with steps that close over
- * the PrismaClient. This factory pattern keeps the saga engine framework-agnostic
- * while allowing steps to perform Prisma transactions.
- */
 export function createOrderProcessingSaga(
   prisma: PrismaClient
 ): SagaDefinition<OrderProcessingContext> {
@@ -116,21 +65,10 @@ export function createOrderProcessingSaga(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Step 1: ValidatePayload
-// ---------------------------------------------------------------------------
-// Parses the raw Shopify webhook payload into our domain model shape.
-// Pure transformation — no side effects, no compensation needed.
-//
-// Validation rules:
-// - order_number must exist
-// - line_items must be a non-empty array
-// - price fields must be parseable as numbers
-
 function createValidatePayloadStep(): SagaStepDefinition<OrderProcessingContext> {
   return {
     name: "ValidatePayload",
-    maxRetries: 1, // Validation either passes or it doesn't — no point retrying
+    maxRetries: 1,
     async execute(context) {
       const p = context.shopifyPayload;
 
@@ -186,18 +124,8 @@ function createValidatePayloadStep(): SagaStepDefinition<OrderProcessingContext>
         shopifyCreatedAt: p.created_at,
       };
     },
-    // No compensate — validation has no side effects
   };
 }
-
-// ---------------------------------------------------------------------------
-// Step 2: UpsertOrder
-// ---------------------------------------------------------------------------
-// Creates or updates the order and its line items in a single Prisma
-// transaction. Uses the same upsert logic as OrderService but broken
-// out for saga orchestration.
-//
-// Compensation: set shopifySyncedAt to null to signal sync failure.
 
 function createUpsertOrderStep(
   prisma: PrismaClient
@@ -287,7 +215,6 @@ function createUpsertOrderStep(
           },
         });
 
-        // Upsert line items within the same transaction
         for (const li of context.lineItems ?? []) {
           let productId: string | null = null;
           if (li.sku) {
@@ -334,8 +261,6 @@ function createUpsertOrderStep(
     async compensate(context) {
       if (!context.orderId) return;
 
-      // Mark the order's sync timestamp as null to signal sync failure.
-      // We do NOT delete the order — partial data is better than data loss.
       await prisma.order.update({
         where: { id: context.orderId },
         data: { shopifySyncedAt: null },
@@ -343,14 +268,6 @@ function createUpsertOrderStep(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Step 3: UpdateInventory
-// ---------------------------------------------------------------------------
-// Adjusts product inventory based on line items. Uses atomic decrement
-// to prevent lost updates under concurrent order processing.
-//
-// Compensation: reverse all inventory adjustments.
 
 function createUpdateInventoryStep(
   prisma: PrismaClient
@@ -376,7 +293,6 @@ function createUpdateInventoryStep(
 
           if (!product) continue;
 
-          // Atomic decrement — prevents lost updates under concurrency
           await tx.product.update({
             where: { id: product.id },
             data: { inventoryQuantity: { decrement: li.quantity } },
@@ -393,7 +309,6 @@ function createUpdateInventoryStep(
       return { inventoryAdjustments: adjustments };
     },
     async compensate(context) {
-      // Reverse each inventory adjustment
       await prisma.$transaction(async (tx) => {
         for (const adj of context.inventoryAdjustments ?? []) {
           await tx.product.update({
@@ -407,12 +322,6 @@ function createUpdateInventoryStep(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Step 4: DeliverWebhooks
-// ---------------------------------------------------------------------------
-// Writes an "order.synced" outbox event so the outbox poller can deliver
-// webhooks to merchant endpoints. Best-effort — no compensation.
 
 function createDeliverWebhooksStep(
   prisma: PrismaClient
@@ -440,6 +349,5 @@ function createDeliverWebhooksStep(
 
       return {};
     },
-    // No compensate — outbox delivery is best-effort
   };
 }

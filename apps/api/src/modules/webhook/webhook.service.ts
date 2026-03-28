@@ -1,22 +1,3 @@
-// =============================================================================
-// Webhook Service (Outbound Delivery)
-// =============================================================================
-// Manages merchant-configured webhook endpoints and delivery.
-//
-// Flow:
-// 1. Outbox poller picks up a domain event (e.g. "order.synced")
-// 2. It dispatches to the webhook delivery BullMQ queue
-// 3. The webhook worker calls this service to deliver to all matching endpoints
-// 4. For each endpoint subscribed to this event type:
-//    a. Sign the payload with the endpoint's HMAC secret
-//    b. POST to the endpoint URL with retry
-//    c. Record the delivery attempt
-//    d. On persistent failure, increment the endpoint's failure count
-//    e. Auto-disable endpoint after 10 consecutive failures
-//
-// Merchants verify our signatures using the X-MerchantFlow-Signature header.
-// Format: sha256=<hex> (same as GitHub webhooks).
-
 import type { PrismaClient, Prisma, WebhookEndpoint } from "@prisma/client";
 import { signWebhookPayload } from "../../lib/hmac/index.js";
 import { withRetry } from "../../lib/retry/index.js";
@@ -32,9 +13,6 @@ export interface WebhookEvent {
 export class WebhookService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /**
-   * Registers a new webhook endpoint for a store.
-   */
   async createEndpoint(
     storeId: string,
     input: { url: string; secret: string; events: string[] }
@@ -50,18 +28,7 @@ export class WebhookService {
     });
   }
 
-  /**
-   * Delivers a webhook event to all matching active endpoints for the store.
-   *
-   * Called by the webhook delivery BullMQ worker. This method handles:
-   * - Finding matching endpoints (subscribed to this event type)
-   * - Signing the payload
-   * - HTTP delivery with retry
-   * - Recording success/failure
-   * - Auto-disabling broken endpoints
-   */
   async deliverEvent(event: WebhookEvent): Promise<void> {
-    // Find all active endpoints for this store that subscribe to this event
     const endpoints = await this.prisma.webhookEndpoint.findMany({
       where: {
         storeId: event.storeId,
@@ -70,10 +37,8 @@ export class WebhookService {
       },
     });
 
-    // Deliver to each endpoint independently — one failure should not block others
     const deliveryPromises = endpoints.map((endpoint) =>
       this.deliverToEndpoint(endpoint, event).catch((err) => {
-        // Log but don't throw — other endpoints should still receive the event
         console.error(
           `Webhook delivery failed for endpoint ${endpoint.id}: ${err.message}`
         );
@@ -83,9 +48,6 @@ export class WebhookService {
     await Promise.allSettled(deliveryPromises);
   }
 
-  /**
-   * Delivers to a single endpoint with retry and failure tracking.
-   */
   private async deliverToEndpoint(
     endpoint: WebhookEndpoint,
     event: WebhookEvent
@@ -93,7 +55,6 @@ export class WebhookService {
     const payloadString = JSON.stringify(event.payload);
     const signature = signWebhookPayload(payloadString, endpoint.secret);
 
-    // Create the delivery record first
     const delivery = await this.prisma.webhookDelivery.create({
       data: {
         endpointId: endpoint.id,
@@ -116,7 +77,7 @@ export class WebhookService {
               "User-Agent": "MerchantFlow-Webhook/1.0",
             },
             body: payloadString,
-            signal: AbortSignal.timeout(10_000), // 10s timeout per attempt
+            signal: AbortSignal.timeout(10_000),
           });
 
           if (!res.ok) {
@@ -136,7 +97,6 @@ export class WebhookService {
         }
       );
 
-      // Success — update delivery and reset endpoint failure count
       await this.prisma.$transaction([
         this.prisma.webhookDelivery.update({
           where: { id: delivery.id },
@@ -157,7 +117,6 @@ export class WebhookService {
         }),
       ]);
     } catch (error) {
-      // Failed after all retries — update delivery and increment failure count
       const newFailureCount = endpoint.failureCount + 1;
       const shouldDisable = newFailureCount >= MAX_CONSECUTIVE_FAILURES;
 
@@ -188,9 +147,6 @@ export class WebhookService {
     }
   }
 
-  /**
-   * Lists webhook endpoints for a store.
-   */
   async listEndpoints(storeId: string): Promise<WebhookEndpoint[]> {
     return this.prisma.webhookEndpoint.findMany({
       where: { storeId },

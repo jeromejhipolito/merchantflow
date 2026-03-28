@@ -1,17 +1,3 @@
-// =============================================================================
-// Custom Error Hierarchy
-// =============================================================================
-// Every error extends AppError. The error handler maps these to HTTP responses.
-// Business logic throws domain errors; the framework translates them.
-//
-// Error classification:
-// - Operational errors (expected): validation, not found, conflict, auth
-//   -> Return structured JSON, log at WARN level
-// - Programming errors (bugs): null reference, type error, assertion failure
-//   -> Return generic 500, log at ERROR level, alert
-// - Transient errors (retryable): DB timeout, external API 503
-//   -> Return 503 with Retry-After, log at WARN level
-
 export enum ErrorCode {
   // 400 Bad Request
   VALIDATION_ERROR = "VALIDATION_ERROR",
@@ -122,10 +108,6 @@ export class AppError extends Error {
     };
   }
 }
-
-// ---------------------------------------------------------------------------
-// Convenience factories
-// ---------------------------------------------------------------------------
 
 export function notFound(resource: string, id: string): AppError {
   const codeMap: Record<string, ErrorCode> = {

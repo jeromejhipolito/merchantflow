@@ -1,16 +1,3 @@
-// =============================================================================
-// Order Routes
-// =============================================================================
-// All routes are store-scoped via the auth middleware (request.storeId).
-//
-// GET    /api/v1/orders                   — List orders (cursor paginated)
-// GET    /api/v1/orders/:orderId          — Get order details
-// POST   /api/v1/orders/:orderId/shipments — Create shipment for order
-// GET    /api/v1/orders/:orderId/shipments — List shipments for order
-//
-// Idempotency: POST routes require Idempotency-Key header.
-// All list endpoints support cursor pagination (?cursor=<uuid>&limit=20).
-
 import type { FastifyInstance } from "fastify";
 import { OrderService } from "../modules/order/order.service.js";
 import { ShipmentService } from "../modules/shipment/shipment.service.js";
@@ -20,9 +7,6 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
   const orderService = new OrderService(prisma);
   const shipmentService = new ShipmentService(prisma);
 
-  // -------------------------------------------------------------------------
-  // GET /api/v1/orders — List orders
-  // -------------------------------------------------------------------------
   app.get<{
     Querystring: {
       cursor?: string;
@@ -73,9 +57,6 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // -------------------------------------------------------------------------
-  // GET /api/v1/orders/:orderId — Get order details
-  // -------------------------------------------------------------------------
   app.get<{ Params: { orderId: string } }>(
     "/:orderId",
     {
@@ -96,12 +77,6 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // -------------------------------------------------------------------------
-  // POST /api/v1/orders/:orderId/shipments — Create shipment
-  // -------------------------------------------------------------------------
-  // Returns 202 Accepted because label generation happens asynchronously.
-  // The response includes the shipment ID — the client polls GET /shipments/:id
-  // to check when the label is ready.
   app.post<{
     Params: { orderId: string };
     Body: {
@@ -156,7 +131,6 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
         customsCurrency: request.body.customsCurrency,
       });
 
-      // 202 Accepted — label generation is async
       return reply.status(202).send({
         data: shipment,
         message:
@@ -166,9 +140,6 @@ export async function registerOrderRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // -------------------------------------------------------------------------
-  // GET /api/v1/orders/:orderId/shipments — List shipments for order
-  // -------------------------------------------------------------------------
   app.get<{ Params: { orderId: string } }>(
     "/:orderId/shipments",
     {

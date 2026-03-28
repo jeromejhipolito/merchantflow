@@ -1,16 +1,5 @@
-// =============================================================================
-// Prisma Saga Store — Unit Tests
-// =============================================================================
-// Tests the PrismaSagaStore adapter using mocked Prisma calls.
-// These verify the mapping between the generic SagaStore interface and
-// Prisma-specific operations (JSON casting, nested writes, etc.).
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PrismaSagaStore } from "../prisma-saga-store.js";
-
-// ---------------------------------------------------------------------------
-// Mock Prisma Client
-// ---------------------------------------------------------------------------
 
 function createMockPrisma() {
   return {
@@ -25,10 +14,6 @@ function createMockPrisma() {
     },
   } as any;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("PrismaSagaStore", () => {
   let prisma: ReturnType<typeof createMockPrisma>;
@@ -152,7 +137,6 @@ describe("PrismaSagaStore", () => {
         ],
       });
 
-      // Verify Prisma was called with nested write
       expect(prisma.sagaInstance.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -201,7 +185,6 @@ describe("PrismaSagaStore", () => {
 
       const updateCall = prisma.sagaInstance.update.mock.calls[0]![0];
       expect(updateCall.data).toHaveProperty("status", "FAILED");
-      // output, error, completedAt should not be in the data object
       expect(updateCall.data).not.toHaveProperty("output");
       expect(updateCall.data).not.toHaveProperty("error");
       expect(updateCall.data).not.toHaveProperty("completedAt");

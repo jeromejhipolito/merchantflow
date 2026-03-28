@@ -1,20 +1,3 @@
-// =============================================================================
-// Outbox Poller Worker
-// =============================================================================
-// This is NOT a BullMQ worker — it's a standalone polling loop that runs
-// as a separate process (or as a repeatable BullMQ job for simplicity).
-//
-// It polls the outbox_events table for PENDING events and dispatches them
-// to the appropriate BullMQ queues based on event type.
-//
-// Event routing:
-//   order.*     -> webhook-delivery queue (for merchant webhooks)
-//   shipment.*  -> webhook-delivery queue + label-generation queue
-//   store.*     -> webhook-delivery queue
-//
-// The poller uses FOR UPDATE SKIP LOCKED to prevent duplicate processing
-// when multiple poller instances are running (horizontal scaling).
-
 import type { PrismaClient } from "@prisma/client";
 import type { Queue } from "bullmq";
 import {
@@ -29,17 +12,11 @@ interface OutboxPollerConfig {
   batchSize: number;
 }
 
-/**
- * Routes an outbox event to the appropriate BullMQ queue(s).
- * Some events dispatch to multiple queues.
- */
 function getTargetQueues(eventType: string): string[] {
   const targets: string[] = [];
 
-  // All domain events go to webhook delivery (for merchant-configured webhooks)
   targets.push("webhook-delivery");
 
-  // Shipment-specific routing
   if (eventType === "shipment.created") {
     targets.push("label-generation");
   }
@@ -47,10 +24,6 @@ function getTargetQueues(eventType: string): string[] {
   return targets;
 }
 
-/**
- * Starts the outbox poller loop.
- * Returns a cleanup function to stop polling.
- */
 export function startOutboxPoller(
   prisma: PrismaClient,
   queues: QueueMap,
@@ -69,7 +42,6 @@ export function startOutboxPoller(
         try {
           const targetQueues = getTargetQueues(event.eventType);
 
-          // Dispatch to all target queues
           for (const queueName of targetQueues) {
             const queue = queues[queueName as keyof QueueMap];
             if (!queue) {
@@ -90,7 +62,7 @@ export function startOutboxPoller(
                 payload: event.payload,
               },
               {
-                jobId: `outbox-${event.id}-${queueName}`, // deduplicate
+                jobId: `outbox-${event.id}-${queueName}`,
                 attempts: 3,
                 backoff: { type: "exponential", delay: 2000 },
               }
@@ -113,17 +85,14 @@ export function startOutboxPoller(
         }
       }
     } catch (error) {
-      // Poll failure — log and continue on next interval
       console.error("Outbox poller: poll cycle failed:", error);
     }
 
-    // Schedule next poll
     if (isRunning) {
       timeoutId = setTimeout(poll, config.pollIntervalMs);
     }
   }
 
-  // Start the first poll
   timeoutId = setTimeout(poll, 0);
 
   return {

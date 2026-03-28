@@ -1,27 +1,8 @@
-// =============================================================================
-// Global Error Handler
-// =============================================================================
-// Maps all errors to structured JSON responses. The two categories:
-//
-// 1. Operational errors (AppError with isOperational=true):
-//    Known, expected errors. Return the error's own status code and message.
-//    Log at WARN level — these are normal business flow (not found, validation, etc.)
-//
-// 2. Programming errors (anything else, or AppError with isOperational=false):
-//    Bugs. Return generic 500 response. Log at ERROR level with full stack trace.
-//    These should trigger alerts in production.
-//
-// Fastify's built-in validation errors (from JSON Schema) are also handled
-// and mapped to our standard error format.
-
 import type { FastifyInstance, FastifyError } from "fastify";
 import { AppError, ErrorCode } from "../lib/errors/index.js";
 
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error: FastifyError | AppError | Error, request, reply) => {
-    // -----------------------------------------------------------------------
-    // Case 1: Our custom AppError
-    // -----------------------------------------------------------------------
     if (error instanceof AppError) {
       if (error.isOperational) {
         request.log.warn(
@@ -55,9 +36,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return reply.status(error.statusCode).send(response);
     }
 
-    // -----------------------------------------------------------------------
-    // Case 2: Fastify validation errors (from JSON Schema)
-    // -----------------------------------------------------------------------
+    // Fastify validation errors
     if ("validation" in error && Array.isArray((error as any).validation)) {
       const validationErrors = (error as any).validation as Array<{
         keyword: string;
@@ -85,14 +64,11 @@ export function registerErrorHandler(app: FastifyInstance): void {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Case 3: Prisma known errors (unique constraint, not found, etc.)
-    // -----------------------------------------------------------------------
+    // Prisma known errors
     if (typeof error === "object" && error !== null && "code" in error) {
       const prismaCode = (error as any).code as string;
 
       if (prismaCode === "P2002") {
-        // Unique constraint violation
         const target = (error as any).meta?.target;
         request.log.warn(
           { prismaCode, target, path: request.url },
@@ -108,7 +84,6 @@ export function registerErrorHandler(app: FastifyInstance): void {
       }
 
       if (prismaCode === "P2025") {
-        // Record not found
         return reply.status(404).send({
           error: {
             code: ErrorCode.NOT_FOUND,
@@ -118,9 +93,6 @@ export function registerErrorHandler(app: FastifyInstance): void {
       }
     }
 
-    // -----------------------------------------------------------------------
-    // Case 4: Unknown/programming errors
-    // -----------------------------------------------------------------------
     request.log.error(
       {
         path: request.url,
@@ -131,7 +103,6 @@ export function registerErrorHandler(app: FastifyInstance): void {
       `UNHANDLED ERROR: ${error.message}`
     );
 
-    // Never expose internal error details in production
     const isProduction = process.env.NODE_ENV === "production";
 
     return reply.status(500).send({

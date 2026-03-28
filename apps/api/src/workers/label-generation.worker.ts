@@ -1,23 +1,3 @@
-// =============================================================================
-// Label Generation Worker
-// =============================================================================
-// Generates shipping labels via carrier APIs. This is intentionally async
-// because carrier APIs are slow (2-15 seconds) and unreliable.
-//
-// Job payload:
-//   { shipmentId, storeId, orderId, carrier }
-//
-// Processing:
-// 1. Look up shipment + order + shipping address
-// 2. Transition shipment to LABEL_GENERATING
-// 3. Call the carrier API (stubbed — this is where DHL/FedEx/etc. integration goes)
-// 4. On success: store label URL, transition to LABEL_READY
-// 5. On failure: transition to LABEL_FAILED
-//
-// The carrier API call uses withRetry() for transient failures.
-// After BullMQ exhausts all retries, the shipment stays in LABEL_FAILED
-// and the merchant can retry via the UI.
-
 import { Worker, type Job } from "bullmq";
 import type { Redis } from "ioredis";
 import type { PrismaClient } from "@prisma/client";
@@ -31,10 +11,6 @@ interface LabelGenerationJobData {
   carrier?: string;
 }
 
-/**
- * Stub carrier API client.
- * In production, this would be a DHL/FedEx/UPS SDK wrapper.
- */
 async function generateLabelViaCarrier(
   _shipmentData: Record<string, unknown>
 ): Promise<{
@@ -43,8 +19,6 @@ async function generateLabelViaCarrier(
   labelUrl: string;
   labelFormat: string;
 }> {
-  // STUB: Simulate carrier API latency
-  // Replace with actual carrier SDK integration (e.g., @dhl-express/sdk)
   return {
     trackingNumber: `MF${Date.now()}`,
     trackingUrl: `https://track.example.com/MF${Date.now()}`,
@@ -66,11 +40,9 @@ export function createLabelGenerationWorker(
 
       job.log(`Generating label for shipment ${shipmentId}`);
 
-      // Transition to LABEL_GENERATING
       await shipmentService.transition(storeId, shipmentId, "LABEL_GENERATING");
 
       try {
-        // Look up full shipment + order details for the carrier API
         const shipment = await prisma.shipment.findUnique({
           where: { id: shipmentId },
           include: {
@@ -94,7 +66,6 @@ export function createLabelGenerationWorker(
           throw new Error(`Shipment ${shipmentId} not found`);
         }
 
-        // Call carrier API with retry
         const labelResult = await withRetry(
           () =>
             generateLabelViaCarrier({
@@ -133,7 +104,6 @@ export function createLabelGenerationWorker(
           }
         );
 
-        // Transition to LABEL_READY with tracking info
         await shipmentService.transition(storeId, shipmentId, "LABEL_READY", {
           trackingNumber: labelResult.trackingNumber,
           trackingUrl: labelResult.trackingUrl,
@@ -147,21 +117,19 @@ export function createLabelGenerationWorker(
 
         return { trackingNumber: labelResult.trackingNumber };
       } catch (error) {
-        // Transition to LABEL_FAILED
         try {
           await shipmentService.transition(storeId, shipmentId, "LABEL_FAILED");
         } catch {
-          // If transition fails, log but still throw the original error
           job.log(`Failed to transition shipment ${shipmentId} to LABEL_FAILED`);
         }
-        throw error; // re-throw for BullMQ retry
+        throw error;
       }
     },
     {
       connection: redis,
-      concurrency: 3, // carrier APIs are slow — don't overwhelm them
+      concurrency: 3,
       limiter: {
-        max: 10, // max 10 labels per 60 seconds per carrier
+        max: 10,
         duration: 60_000,
       },
     }

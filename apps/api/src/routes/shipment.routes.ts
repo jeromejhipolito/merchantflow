@@ -1,12 +1,3 @@
-// =============================================================================
-// Shipment Routes
-// =============================================================================
-// GET  /api/v1/shipments/:shipmentId — Get shipment details (label status, tracking)
-// POST /api/v1/shipments/:shipmentId/ship — Mark as shipped (transition to SHIPPED)
-//
-// Note: Creating shipments is done via POST /api/v1/orders/:orderId/shipments.
-// These routes are for shipment-specific operations after creation.
-
 import type { FastifyInstance } from "fastify";
 import { ShipmentService } from "../modules/shipment/shipment.service.js";
 
@@ -16,9 +7,6 @@ export async function registerShipmentRoutes(
   const prisma = app.prisma;
   const shipmentService = new ShipmentService(prisma);
 
-  // -------------------------------------------------------------------------
-  // GET /api/v1/shipments/:shipmentId — Get shipment details
-  // -------------------------------------------------------------------------
   app.get<{ Params: { shipmentId: string } }>(
     "/:shipmentId",
     {
@@ -42,11 +30,6 @@ export async function registerShipmentRoutes(
     }
   );
 
-  // -------------------------------------------------------------------------
-  // POST /api/v1/shipments/:shipmentId/ship — Mark as shipped
-  // -------------------------------------------------------------------------
-  // This transition requires the shipment to be in LABEL_READY status.
-  // It indicates the merchant has handed the package to the carrier.
   app.post<{
     Params: { shipmentId: string };
     Body: { trackingNumber?: string };

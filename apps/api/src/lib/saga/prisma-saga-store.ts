@@ -1,15 +1,3 @@
-// =============================================================================
-// Prisma Saga Store
-// =============================================================================
-// Concrete implementation of the SagaStore interface from @merchantflow/saga-engine.
-// This bridges the generic saga engine to our Prisma + PostgreSQL persistence layer.
-//
-// Design decisions:
-// - Saga creation uses nested writes (Prisma's `create` with `steps.create`)
-//   for atomicity — either the saga AND all steps are created, or neither is.
-// - Step queries always filter by sagaId to stay within the saga boundary.
-// - JSON fields use Prisma's InputJsonValue casting for type safety.
-
 import type { PrismaClient, Prisma } from "@prisma/client";
 import type {
   SagaStore,
@@ -17,7 +5,7 @@ import type {
   SagaStepRecord,
   SagaStatus,
   SagaStepStatus,
-} from "@merchantflow/saga-engine";
+} from "saga-engine-ts";
 
 export class PrismaSagaStore implements SagaStore {
   constructor(private readonly prisma: PrismaClient) {}
@@ -151,10 +139,6 @@ export class PrismaSagaStore implements SagaStore {
       },
     });
   }
-
-  // -------------------------------------------------------------------------
-  // Private Helpers
-  // -------------------------------------------------------------------------
 
   private mapStepRecord(step: {
     id: string;

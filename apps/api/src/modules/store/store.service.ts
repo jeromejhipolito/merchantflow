@@ -1,14 +1,3 @@
-// =============================================================================
-// Store Service
-// =============================================================================
-// Manages the Store aggregate. Handles:
-// - OAuth installation (creating a store from Shopify OAuth callback)
-// - Store lookup by domain
-// - Store suspension / uninstallation
-//
-// The Store is the tenant root. All other services receive a storeId
-// parameter — they never query without one.
-
 import type { PrismaClient, Store } from "@prisma/client";
 import { encryptAccessToken, decryptAccessToken } from "../../lib/shopify/oauth.js";
 import { notFound, conflict } from "../../lib/errors/index.js";
@@ -16,7 +5,7 @@ import { writeOutboxEvent } from "../../lib/outbox/index.js";
 
 export interface CreateStoreInput {
   shopifyDomain: string;
-  shopifyAccessToken: string; // plaintext — will be encrypted before storage
+  shopifyAccessToken: string;
   shopifyScopes: string;
   name: string;
   email: string;
@@ -30,13 +19,6 @@ export class StoreService {
     private readonly encryptionKey: string
   ) {}
 
-  /**
-   * Creates a store from a Shopify OAuth callback.
-   * Called after successfully exchanging the OAuth code for an access token.
-   *
-   * Uses a transaction to atomically create the store AND write an outbox event.
-   * If the store already exists (re-install), we update the token instead.
-   */
   async createOrReinstall(input: CreateStoreInput): Promise<Store> {
     const encryptedToken = encryptAccessToken(
       input.shopifyAccessToken,
@@ -44,13 +26,11 @@ export class StoreService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      // Check for existing store (re-installation scenario)
       const existing = await tx.store.findUnique({
         where: { shopifyDomain: input.shopifyDomain },
       });
 
       if (existing) {
-        // Re-install: update token and reactivate
         const updated = await tx.store.update({
           where: { id: existing.id },
           data: {
@@ -72,7 +52,6 @@ export class StoreService {
         return updated;
       }
 
-      // New installation
       const store = await tx.store.create({
         data: {
           shopifyDomain: input.shopifyDomain,
@@ -112,18 +91,10 @@ export class StoreService {
     return store;
   }
 
-  /**
-   * Returns the decrypted access token for making Shopify API calls.
-   * This should NEVER be exposed via API — only used internally by services.
-   */
   getDecryptedAccessToken(store: Store): string {
     return decryptAccessToken(store.shopifyAccessToken, this.encryptionKey);
   }
 
-  /**
-   * Handles Shopify app/uninstalled webhook.
-   * Soft-deletes the store and writes an outbox event.
-   */
   async handleUninstall(shopifyDomain: string): Promise<void> {
     const store = await this.findByDomain(shopifyDomain);
 
@@ -133,7 +104,7 @@ export class StoreService {
         data: {
           status: "UNINSTALLED",
           deletedAt: new Date(),
-          shopifyAccessToken: "REVOKED", // clear the token
+          shopifyAccessToken: "REVOKED",
         },
       });
 

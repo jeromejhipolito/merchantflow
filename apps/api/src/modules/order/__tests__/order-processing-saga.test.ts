@@ -1,17 +1,6 @@
-// =============================================================================
-// Order Processing Saga — Unit Tests
-// =============================================================================
-// Tests the order processing saga step definitions using mocked Prisma calls.
-// These validate business logic (validation, status mapping, inventory
-// adjustment, outbox event writing) without requiring a real database.
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createOrderProcessingSaga } from "../order-processing.saga.js";
 import type { OrderProcessingContext } from "../order-processing.saga.js";
-
-// ---------------------------------------------------------------------------
-// Shopify Payload Fixtures
-// ---------------------------------------------------------------------------
 
 function createShopifyOrderPayload(overrides: Record<string, any> = {}) {
   return {
@@ -71,10 +60,6 @@ function createInitialContext(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Mock Prisma
-// ---------------------------------------------------------------------------
-
 function createMockPrisma() {
   const mockTx = {
     order: {
@@ -101,13 +86,9 @@ function createMockPrisma() {
     product: {
       update: vi.fn().mockResolvedValue({}),
     },
-    _tx: mockTx, // expose for assertions
+    _tx: mockTx,
   } as any;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("Order Processing Saga", () => {
   let prisma: ReturnType<typeof createMockPrisma>;
@@ -131,7 +112,7 @@ describe("Order Processing Saga", () => {
     });
   });
 
-  describe("Step 1: ValidatePayload", () => {
+  describe("ValidatePayload", () => {
     it("should parse Shopify payload into domain model shape", async () => {
       const saga = createOrderProcessingSaga(prisma);
       const step = saga.steps[0]!;
@@ -183,7 +164,6 @@ describe("Order Processing Saga", () => {
         }),
       });
 
-      // "null" is still a truthy string, so we need to test with truly empty
       const emptyContext = createInitialContext({
         shopifyPayload: { ...createShopifyOrderPayload(), line_items: [] },
       });
@@ -214,7 +194,7 @@ describe("Order Processing Saga", () => {
     });
   });
 
-  describe("Step 2: UpsertOrder", () => {
+  describe("UpsertOrder", () => {
     it("should upsert order and line items via Prisma transaction", async () => {
       const saga = createOrderProcessingSaga(prisma);
       const step = saga.steps[1]!;
@@ -314,12 +294,11 @@ describe("Order Processing Saga", () => {
     });
   });
 
-  describe("Step 3: UpdateInventory", () => {
+  describe("UpdateInventory", () => {
     it("should decrement inventory for products matched by SKU", async () => {
       const saga = createOrderProcessingSaga(prisma);
       const step = saga.steps[2]!;
 
-      // Mock product lookup
       prisma._tx.product.findFirst.mockResolvedValue({
         id: "prod-1",
         sku: "TSHIRT-LG-BL",
@@ -405,7 +384,7 @@ describe("Order Processing Saga", () => {
     });
   });
 
-  describe("Step 4: DeliverWebhooks", () => {
+  describe("DeliverWebhooks", () => {
     it("should write outbox event for order.synced", async () => {
       const saga = createOrderProcessingSaga(prisma);
       const step = saga.steps[3]!;
@@ -453,7 +432,6 @@ describe("Order Processing Saga", () => {
       const result = await step.execute(context);
 
       expect(result).toEqual({});
-      // Transaction should not have been called
       expect(prisma._tx.outboxEvent.create).not.toHaveBeenCalled();
     });
   });

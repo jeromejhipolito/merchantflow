@@ -1,28 +1,7 @@
-// =============================================================================
-// Shopify OAuth Flow
-// =============================================================================
-// Implements the Shopify OAuth 2.0 authorization code flow:
-//
-// 1. Merchant clicks "Install" on the Shopify app listing
-// 2. Shopify redirects to our /auth/shopify endpoint with { shop, hmac, ... }
-// 3. We verify the HMAC, then redirect the merchant to Shopify's OAuth consent page
-// 4. Merchant approves, Shopify redirects back to /auth/shopify/callback with { code, shop, hmac }
-// 5. We verify the HMAC, exchange the code for a permanent access token
-// 6. We store the access token (encrypted) and create the Store record
-//
-// Security:
-// - HMAC verification on EVERY redirect from Shopify (prevents MITM)
-// - State parameter (nonce) to prevent CSRF
-// - Access token encrypted at rest using AES-256-GCM
-
 import { createHmac, randomBytes, createCipheriv, createDecipheriv, timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 import type { ShopifyClientConfig } from "./client.js";
 import { AppError, ErrorCode } from "../errors/index.js";
 
-/**
- * Verifies the HMAC signature on Shopify OAuth query parameters.
- * Shopify signs the query string with the app's API secret.
- */
 export function verifyShopifyOAuthHmac(
   queryParams: Record<string, string>,
   apiSecret: string
@@ -30,7 +9,6 @@ export function verifyShopifyOAuthHmac(
   const hmac = queryParams.hmac;
   if (!hmac) return false;
 
-  // Build the message: alphabetically sorted key=value pairs, excluding hmac
   const entries = Object.entries(queryParams)
     .filter(([key]) => key !== "hmac")
     .sort(([a], [b]) => a.localeCompare(b))
@@ -41,13 +19,9 @@ export function verifyShopifyOAuthHmac(
     .update(entries)
     .digest("hex");
 
-  // Constant-time comparison to prevent timing attacks
   return timingSafeEqual(computed, hmac);
 }
 
-/**
- * Generates the Shopify OAuth consent URL.
- */
 export function buildAuthorizationUrl(
   shop: string,
   config: ShopifyClientConfig,
@@ -65,9 +39,6 @@ export function buildAuthorizationUrl(
   return `https://${shop}/admin/oauth/authorize?${params.toString()}`;
 }
 
-/**
- * Exchanges the authorization code for a permanent access token.
- */
 export async function exchangeCodeForToken(
   shop: string,
   code: string,
@@ -104,19 +75,11 @@ export async function exchangeCodeForToken(
   };
 }
 
-/**
- * Generates a cryptographic nonce for OAuth state parameter.
- */
 export function generateNonce(): string {
   return randomBytes(16).toString("hex");
 }
 
-// ---------------------------------------------------------------------------
-// Access Token Encryption (AES-256-GCM)
-// ---------------------------------------------------------------------------
-// We never store Shopify access tokens in plaintext. The encryption key
-// comes from the ENCRYPTION_KEY env var (32-byte hex = 64 hex chars).
-
+// AES-256-GCM encryption for access tokens at rest
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
@@ -135,7 +98,6 @@ export function encryptAccessToken(
   ]);
   const authTag = cipher.getAuthTag();
 
-  // Format: iv:authTag:ciphertext (all hex)
   return [
     iv.toString("hex"),
     authTag.toString("hex"),
@@ -164,10 +126,6 @@ export function decryptAccessToken(
     decipher.final(),
   ]).toString("utf8");
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

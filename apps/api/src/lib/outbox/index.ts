@@ -1,32 +1,4 @@
-// =============================================================================
-// Transactional Outbox
-// =============================================================================
-// The outbox guarantees at-least-once delivery of domain events without
-// distributed transactions. The flow:
-//
-// 1. Service layer performs a mutation and writes an OutboxEvent in the SAME
-//    database transaction:
-//
-//    await prisma.$transaction([
-//      prisma.order.create({ data: orderData }),
-//      outbox.write(tx, { storeId, aggregateType: 'Order', ... }),
-//    ]);
-//
-// 2. A background poller (OutboxPollerWorker) queries for PENDING events:
-//    SELECT * FROM outbox_events
-//    WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-//    ORDER BY created_at ASC
-//    LIMIT 50
-//    FOR UPDATE SKIP LOCKED;
-//
-//    FOR UPDATE SKIP LOCKED prevents multiple pollers from picking the same
-//    event, enabling horizontal scaling of workers.
-//
-// 3. The poller dispatches each event to the appropriate BullMQ queue.
-//
-// 4. On success, it marks the event as PUBLISHED.
-//    On failure, it increments attempts and sets nextRetryAt.
-//    After max attempts, it marks the event as FAILED (dead letter).
+// Transactional outbox for at-least-once event delivery
 
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { calculateNextRetryAt } from "../retry/index.js";
@@ -41,21 +13,6 @@ export interface OutboxEventInput {
 
 const MAX_OUTBOX_ATTEMPTS = 5;
 
-/**
- * Writes an outbox event. Call this inside a Prisma interactive transaction.
- *
- * Usage:
- *   await prisma.$transaction(async (tx) => {
- *     await tx.order.create({ data: ... });
- *     await writeOutboxEvent(tx, {
- *       storeId: store.id,
- *       aggregateType: 'Order',
- *       aggregateId: order.id,
- *       eventType: 'order.created',
- *       payload: { orderId: order.id, shopifyOrderId: '...' },
- *     });
- *   });
- */
 export async function writeOutboxEvent(
   tx: Prisma.TransactionClient,
   input: OutboxEventInput
@@ -72,10 +29,6 @@ export async function writeOutboxEvent(
   });
 }
 
-/**
- * Polls for pending outbox events using FOR UPDATE SKIP LOCKED.
- * Returns events that are ready to be published.
- */
 export async function pollOutboxEvents(
   prisma: PrismaClient,
   batchSize: number
@@ -90,7 +43,7 @@ export async function pollOutboxEvents(
     attempts: number;
   }>
 > {
-  // Raw query for FOR UPDATE SKIP LOCKED — Prisma doesn't support this natively
+  // Prisma doesn't support FOR UPDATE SKIP LOCKED natively
   const events = await prisma.$queryRaw<
     Array<{
       id: string;
@@ -122,9 +75,6 @@ export async function pollOutboxEvents(
   }));
 }
 
-/**
- * Marks an outbox event as published.
- */
 export async function markOutboxEventPublished(
   prisma: PrismaClient,
   eventId: string
@@ -138,10 +88,6 @@ export async function markOutboxEventPublished(
   });
 }
 
-/**
- * Marks an outbox event as failed with retry scheduling.
- * After MAX_OUTBOX_ATTEMPTS, marks as FAILED (dead letter).
- */
 export async function markOutboxEventFailed(
   prisma: PrismaClient,
   eventId: string,

@@ -1,37 +1,17 @@
-// =============================================================================
-// Shipment Service
-// =============================================================================
-// Manages the Shipment aggregate. A shipment represents a physical package.
-//
-// Lifecycle (state machine):
-//   PENDING -> LABEL_GENERATING -> LABEL_READY -> SHIPPED -> IN_TRANSIT -> DELIVERED
-//                               -> LABEL_FAILED (terminal, can retry)
-//   Any state -> FAILED / RETURNED (terminal)
-//
-// Key invariants:
-// - A shipment can only be created for orders with financial status PAID or AUTHORIZED
-// - Total fulfilled quantity across all shipments must not exceed line item quantity
-// - State transitions are validated — you cannot go from DELIVERED back to PENDING
-// - Label generation is async (BullMQ job) — the API returns 202 Accepted
-
 import type { PrismaClient, Shipment, ShipmentStatus } from "@prisma/client";
 import { notFound, conflict, AppError, ErrorCode } from "../../lib/errors/index.js";
 import { writeOutboxEvent } from "../../lib/outbox/index.js";
-
-// ---------------------------------------------------------------------------
-// State Machine
-// ---------------------------------------------------------------------------
 
 export const VALID_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   PENDING: ["LABEL_GENERATING"],
   LABEL_GENERATING: ["LABEL_READY", "LABEL_FAILED"],
   LABEL_READY: ["SHIPPED"],
-  LABEL_FAILED: ["LABEL_GENERATING", "PENDING"], // allow retry
+  LABEL_FAILED: ["LABEL_GENERATING", "PENDING"],
   SHIPPED: ["IN_TRANSIT", "FAILED", "RETURNED"],
   IN_TRANSIT: ["DELIVERED", "FAILED", "RETURNED"],
-  DELIVERED: [], // terminal
-  FAILED: [], // terminal
-  RETURNED: [], // terminal
+  DELIVERED: [],
+  FAILED: [],
+  RETURNED: [],
 };
 
 export function assertValidTransition(from: ShipmentStatus, to: ShipmentStatus): void {
@@ -44,10 +24,6 @@ export function assertValidTransition(from: ShipmentStatus, to: ShipmentStatus):
     });
   }
 }
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface CreateShipmentInput {
   storeId: string;
@@ -62,27 +38,11 @@ export interface CreateShipmentInput {
   customsCurrency?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
-
 export class ShipmentService {
   constructor(private readonly prisma: PrismaClient) {}
 
-  /**
-   * Creates a shipment for an order and enqueues label generation.
-   *
-   * Returns the shipment in PENDING status. The caller (route handler)
-   * is responsible for enqueuing the label generation job via BullMQ.
-   * We do NOT call BullMQ from the service layer — that would create
-   * a hidden dependency on Redis being available during the DB transaction.
-   *
-   * Instead, we write an outbox event. The outbox poller dispatches it
-   * to the label generation queue.
-   */
   async create(input: CreateShipmentInput): Promise<Shipment> {
     return this.prisma.$transaction(async (tx) => {
-      // Verify the order exists, belongs to this store, and is payable
       const order = await tx.order.findFirst({
         where: { id: input.orderId, storeId: input.storeId, deletedAt: null },
         include: { lineItems: true, shipments: true },
@@ -90,7 +50,6 @@ export class ShipmentService {
 
       if (!order) throw notFound("Order", input.orderId);
 
-      // Business rule: order must be paid before creating shipments
       if (!["PAID", "AUTHORIZED"].includes(order.financialStatus)) {
         throw new AppError({
           code: ErrorCode.UNPROCESSABLE,
@@ -98,7 +57,6 @@ export class ShipmentService {
         });
       }
 
-      // Business rule: cannot create shipment if already fully fulfilled
       if (order.fulfillmentStatus === "FULFILLED") {
         throw conflict(
           `Order ${order.orderNumber} is already fully fulfilled.`,
@@ -122,7 +80,6 @@ export class ShipmentService {
         },
       });
 
-      // Outbox event — the poller will dispatch this to the label generation queue
       await writeOutboxEvent(tx, {
         storeId: input.storeId,
         aggregateType: "Shipment",
@@ -139,9 +96,6 @@ export class ShipmentService {
     });
   }
 
-  /**
-   * Transitions a shipment to a new status with validation.
-   */
   async transition(
     storeId: string,
     shipmentId: string,
@@ -166,12 +120,10 @@ export class ShipmentService {
         status: newStatus,
       };
 
-      // Set timestamps based on the new status
       if (newStatus === "SHIPPED") updateData.shippedAt = new Date();
       if (newStatus === "DELIVERED") updateData.deliveredAt = new Date();
       if (newStatus === "LABEL_READY") updateData.labelGeneratedAt = new Date();
 
-      // Apply optional metadata
       if (metadata?.trackingNumber) updateData.trackingNumber = metadata.trackingNumber;
       if (metadata?.trackingUrl) updateData.trackingUrl = metadata.trackingUrl;
       if (metadata?.labelUrl) updateData.labelUrl = metadata.labelUrl;
@@ -182,7 +134,6 @@ export class ShipmentService {
         data: updateData,
       });
 
-      // Map status to outbox event type
       const eventTypeMap: Partial<Record<ShipmentStatus, string>> = {
         LABEL_READY: "shipment.label_ready",
         SHIPPED: "shipment.shipped",

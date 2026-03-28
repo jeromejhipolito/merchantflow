@@ -1,25 +1,6 @@
-// =============================================================================
-// MerchantFlow — Database Seed
-// =============================================================================
-// Creates realistic demo data for development and testing.
-//
-// Run:  pnpm db:seed  (or:  npx tsx prisma/seed.ts)
-//
-// Data:
-//   2 stores (Kultura Filipino, Pasalubong Box PH)
-//   25 orders across both stores with line items
-//   8 shipments in various statuses
-//   Webhook endpoints per store
-//   Outbox events in various states
-// =============================================================================
-
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function randomId(): string {
   return crypto.randomUUID();
@@ -43,16 +24,9 @@ function randomDecimal(min: number, max: number): string {
   return (Math.random() * (max - min) + min).toFixed(2);
 }
 
-// ---------------------------------------------------------------------------
-// Main seed function
-// ---------------------------------------------------------------------------
-
 async function main() {
   console.log("Seeding MerchantFlow database...\n");
 
-  // -------------------------------------------------------------------------
-  // 1. Stores
-  // -------------------------------------------------------------------------
   const store1Id = randomId();
   const store2Id = randomId();
 
@@ -89,9 +63,6 @@ async function main() {
   console.log(`  Created store: ${store1.name} (${store1.id})`);
   console.log(`  Created store: ${store2.name} (${store2.id})`);
 
-  // -------------------------------------------------------------------------
-  // 2. Products
-  // -------------------------------------------------------------------------
   const products1 = await Promise.all([
     prisma.product.create({
       data: {
@@ -244,10 +215,6 @@ async function main() {
     `  Created ${products1.length + products2.length} products across both stores`
   );
 
-  // -------------------------------------------------------------------------
-  // 3. Orders (25 total across both stores)
-  // -------------------------------------------------------------------------
-
   const firstNames = [
     "Maria", "Juan", "Ana", "Carlos", "Rosa", "Miguel", "Sofia", "Jose",
     "Luz", "Pedro", "Elena", "Ramon", "Isabella", "David", "Carmen",
@@ -261,14 +228,12 @@ async function main() {
     "Navarro", "Mercado", "Alcantara", "Corpuz", "Tolentino", "Manalo",
   ];
 
-  // PH cities for store 1 orders
   const phCities = [
     "Makati City", "Cebu City", "Quezon City", "Davao City", "Pasig City",
     "Taguig City", "BGC", "Mandaluyong", "San Juan", "Antipolo",
     "Parañaque", "Las Piñas", "Caloocan", "Marikina", "Pasay City",
   ];
 
-  // International cities for store 2 orders
   const intlCities = [
     "Los Angeles", "New York", "San Francisco", "Chicago", "Houston",
     "Toronto", "Vancouver", "London", "Dubai", "Singapore",
@@ -306,7 +271,6 @@ async function main() {
     const firstName = firstNames[i]!;
     const lastName = lastNames[i]!;
 
-    // Store 1 uses PH cities, Store 2 uses international cities
     let city: string;
     let countryCode: string;
     if (isStore1) {
@@ -321,7 +285,6 @@ async function main() {
     const financialStatus = randomElement([...financialStatuses]);
     const fulfillmentStatus = randomElement([...fulfillmentStatuses]);
 
-    // Generate 1-3 line items per order
     const numLineItems = (i % 3) + 1;
     const lineItemsData: Array<{
       shopifyLineItemId: string;
@@ -363,7 +326,6 @@ async function main() {
     const discount = i % 5 === 0 ? subtotal * 0.1 : 0;
     const totalPrice = subtotal + tax + shipping - discount;
 
-    // Province/state depends on country
     let province: string;
     if (countryCode === "PH") {
       province = "Metro Manila";
@@ -424,10 +386,6 @@ async function main() {
     `  Created 25 orders (15 for ${store1.name}, 10 for ${store2.name})`
   );
 
-  // -------------------------------------------------------------------------
-  // 4. Shipments (8 total in various statuses)
-  // -------------------------------------------------------------------------
-
   const shipmentConfigs = [
     { storeId: store1Id, orderId: ordersForStore1[0]!, status: "DELIVERED" as const, carrier: "LBC Express", service: "Express" },
     { storeId: store1Id, orderId: ordersForStore1[1]!, status: "SHIPPED" as const, carrier: "J&T Express PH", service: "Standard" },
@@ -477,9 +435,6 @@ async function main() {
 
   console.log(`  Created 8 shipments in various statuses`);
 
-  // -------------------------------------------------------------------------
-  // 5. Webhook Endpoints
-  // -------------------------------------------------------------------------
   const endpoint1 = await prisma.webhookEndpoint.create({
     data: {
       storeId: store1Id,
@@ -530,7 +485,6 @@ async function main() {
     },
   });
 
-  // Disabled endpoint (too many failures)
   await prisma.webhookEndpoint.create({
     data: {
       storeId: store2Id,
@@ -548,9 +502,6 @@ async function main() {
 
   console.log(`  Created 4 webhook endpoints`);
 
-  // -------------------------------------------------------------------------
-  // 6. Webhook Deliveries (a few sample deliveries)
-  // -------------------------------------------------------------------------
   await prisma.webhookDelivery.createMany({
     data: [
       {
@@ -598,9 +549,6 @@ async function main() {
 
   console.log(`  Created 4 webhook deliveries`);
 
-  // -------------------------------------------------------------------------
-  // 7. Shopify Webhook Logs (inbound deduplication records)
-  // -------------------------------------------------------------------------
   await prisma.shopifyWebhookLog.createMany({
     data: [
       {
@@ -636,12 +584,8 @@ async function main() {
 
   console.log(`  Created 4 Shopify webhook log entries`);
 
-  // -------------------------------------------------------------------------
-  // 8. Outbox Events
-  // -------------------------------------------------------------------------
   await prisma.outboxEvent.createMany({
     data: [
-      // Published events (already dispatched)
       {
         storeId: store1Id,
         aggregateType: "Order",
@@ -686,7 +630,6 @@ async function main() {
         attempts: 1,
       },
 
-      // Pending events (waiting to be polled)
       {
         storeId: store2Id,
         aggregateType: "Order",
@@ -714,7 +657,6 @@ async function main() {
         attempts: 0,
       },
 
-      // Failed event (exhausted retries)
       {
         storeId: store1Id,
         aggregateType: "Shipment",
@@ -730,7 +672,6 @@ async function main() {
         lastError: "Queue unavailable after 5 attempts",
       },
 
-      // Pending with retry scheduled
       {
         storeId: store1Id,
         aggregateType: "Order",
@@ -744,16 +685,13 @@ async function main() {
         status: "PENDING",
         attempts: 2,
         lastError: "Temporary Redis connection error",
-        nextRetryAt: hoursAgo(-1), // 1 hour in the future
+        nextRetryAt: hoursAgo(-1),
       },
     ],
   });
 
   console.log(`  Created 7 outbox events (3 published, 3 pending, 1 failed)`);
 
-  // -------------------------------------------------------------------------
-  // 9. Idempotency Keys (a couple of examples)
-  // -------------------------------------------------------------------------
   await prisma.idempotencyKey.createMany({
     data: [
       {
@@ -766,7 +704,7 @@ async function main() {
         responseStatus: 202,
         responseBody: { data: { id: "mock-shipment", status: "PENDING" } },
         completedAt: hoursAgo(6),
-        expiresAt: hoursAgo(-18), // 18 hours from now
+        expiresAt: hoursAgo(-18),
       },
       {
         storeId: store2Id,
@@ -778,16 +716,13 @@ async function main() {
         responseStatus: 201,
         responseBody: { data: { id: "mock-endpoint" } },
         completedAt: hoursAgo(2),
-        expiresAt: hoursAgo(-22), // 22 hours from now
+        expiresAt: hoursAgo(-22),
       },
     ],
   });
 
   console.log(`  Created 2 idempotency key records`);
 
-  // -------------------------------------------------------------------------
-  // Done!
-  // -------------------------------------------------------------------------
   console.log(
     "\nSeed complete. Database populated with realistic demo data."
   );

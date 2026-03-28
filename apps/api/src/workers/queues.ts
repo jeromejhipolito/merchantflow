@@ -1,20 +1,3 @@
-// =============================================================================
-// BullMQ Queue Definitions
-// =============================================================================
-// All queues are defined here. Each queue has a corresponding worker file.
-//
-// Queue naming convention: kebab-case, describing the domain action.
-//
-// Queue catalog:
-//   order-sync       — Process incoming Shopify order webhooks
-//   product-sync     — Process incoming Shopify product webhooks
-//   store-lifecycle  — Handle app/uninstalled and other store events
-//   label-generation — Generate shipping labels via carrier APIs
-//   webhook-delivery — Deliver outbound webhooks to merchant endpoints
-//   outbox-publish   — Internal: outbox poller dispatches events here
-//   inventory-sync   — Periodic full inventory sync from Shopify
-//   cleanup          — Periodic cleanup of expired idempotency keys, old logs
-
 import { Queue } from "bullmq";
 import type { Redis } from "ioredis";
 
@@ -40,9 +23,6 @@ const QUEUE_NAMES: (keyof QueueMap)[] = [
   "cleanup",
 ];
 
-/**
- * Creates all BullMQ queues sharing a single Redis connection.
- */
 export function createQueues(redis: Redis): QueueMap {
   const queues: Partial<QueueMap> = {};
 
@@ -64,9 +44,6 @@ export function createQueues(redis: Redis): QueueMap {
   return queues as QueueMap;
 }
 
-/**
- * Gracefully closes all queues.
- */
 export async function closeQueues(queues: QueueMap): Promise<void> {
   await Promise.all(
     Object.values(queues).map((q) => (q as Queue).close())
