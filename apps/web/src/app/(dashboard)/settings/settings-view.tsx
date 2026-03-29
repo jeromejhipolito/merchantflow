@@ -228,7 +228,7 @@ export function SettingsView() {
             <div className="flex justify-between">
               <dt className="text-sm text-gray-500">API Base URL</dt>
               <dd className="font-mono text-sm text-gray-900">
-                {process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}
+                {process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005"}
               </dd>
             </div>
             <div className="flex justify-between">

@@ -1,5 +1,8 @@
 # MerchantFlow
 
+[![CI](https://github.com/jeromejhipolito/merchantflow/actions/workflows/ci.yml/badge.svg)](https://github.com/jeromejhipolito/merchantflow/actions/workflows/ci.yml)
+[![npm: saga-engine-ts](https://img.shields.io/npm/v/saga-engine-ts?label=saga-engine-ts&color=cb3837)](https://www.npmjs.com/package/saga-engine-ts)
+
 Cross-border e-commerce operations platform for managing orders, shipments, and inventory across Shopify stores. Built with **Fastify**, **Prisma**, **PostgreSQL**, **BullMQ**, and **Next.js**.
 
 ## Architecture
@@ -41,15 +44,15 @@ graph TB
 ```
 Shopify Webhook → HMAC Verify → Deduplicate → Acknowledge (200) → BullMQ Job
                                                                        ↓
-                                                                  Process Order
-                                                                       ↓
-                                                              Prisma Transaction
-                                                              ├── Upsert Order
-                                                              └── Write Outbox Event
+                                                              Saga Orchestrator
+                                                              ├── Validate Payload
+                                                              ├── Upsert Order (compensate: mark SYNC_FAILED)
+                                                              ├── Update Inventory (compensate: reverse qty)
+                                                              └── Deliver Webhooks
                                                                        ↓
                                                                 Outbox Poller
                                                                        ↓
-                                                              Deliver Webhooks
+                                                              HMAC-signed POST
                                                               (to merchant endpoints)
 ```
 
@@ -58,12 +61,29 @@ Shopify Webhook → HMAC Verify → Deduplicate → Acknowledge (200) → BullMQ
 | Decision | Rationale |
 |----------|-----------|
 | **Transactional Outbox** over direct queue dispatch | If DB transaction succeeds but Redis is down, the event would be lost. Outbox writes in the same transaction, poller publishes asynchronously. |
+| **Saga Orchestration** over choreography | Step-level idempotency, compensating transactions in reverse order, queryable saga state. Published as [`saga-engine-ts`](https://www.npmjs.com/package/saga-engine-ts) on npm. |
 | **Modular Monolith** over microservices | Clean domain boundaries without distributed system overhead. Worker runs as separate process for independent scaling. |
 | **Idempotency Keys** on all mutations | Clients can safely retry failed requests. Response caching ensures identical results. Lock mechanism prevents race conditions. |
 | **HMAC Webhook Verification** | Timing-safe comparison prevents signature forgery. Per-store secrets prevent cross-tenant attacks. |
 | **BullMQ** over cron/Agenda | Redis-backed durability, built-in retry with exponential backoff, rate limiting per queue, job deduplication. |
 | **Cursor Pagination** over offset | O(1) performance at any depth. Stable under concurrent inserts. |
 | **Full Jitter** on retries | AWS-recommended pattern. Prevents thundering herd after outages by spreading retries uniformly. |
+
+> See [Architecture Decision Records](docs/adr/) for detailed rationale behind each choice.
+
+## Why These Patterns?
+
+Each decision maps to a specific production failure mode:
+
+- **Transactional Outbox** — A major e-commerce platform lost 12 hours of order events when their message broker went down mid-transaction. The outbox guarantees events survive infrastructure failures by writing them in the same DB transaction as the business data.
+
+- **Saga Orchestration** — Event-driven choreography becomes impossible to debug past 3 services. An orchestrator provides a single place to see saga state, retry failed steps, and run compensations in reverse order. Published as [`saga-engine-ts`](https://www.npmjs.com/package/saga-engine-ts) on npm.
+
+- **Modular Monolith** — Microservices add network latency, distributed transactions, and deployment complexity. A modular monolith with clean domain boundaries gives you the same code organization without the operational overhead. The worker process already demonstrates independent scaling.
+
+- **Idempotency Keys** — Shopify webhooks are delivered at-least-once. Without idempotency, a retried `orders/create` webhook creates duplicate orders. The idempotency layer deduplicates by key + request hash with lock-based race condition prevention.
+
+- **Full Jitter Backoff** — AWS's [recommended pattern](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) for retries. Without jitter, all failed requests retry at the same time, creating a thundering herd that amplifies the original failure.
 
 ## Tech Stack
 
@@ -72,6 +92,7 @@ Shopify Webhook → HMAC Verify → Deduplicate → Acknowledge (200) → BullMQ
 | Backend | Fastify 5, TypeScript, ESM |
 | ORM | Prisma 6, PostgreSQL 16 |
 | Queue | BullMQ 5, Redis 7 |
+| Saga | [`saga-engine-ts`](https://www.npmjs.com/package/saga-engine-ts) (own npm package) |
 | Frontend | Next.js 15, React 19, Tailwind CSS 4 |
 | Validation | Zod (shared between frontend and backend) |
 | Testing | Vitest, real DB + Redis (no mocks) |
@@ -84,7 +105,7 @@ Shopify Webhook → HMAC Verify → Deduplicate → Acknowledge (200) → BullMQ
 # Prerequisites: Node.js 22+, pnpm, Docker
 
 # 1. Clone and install
-git clone https://github.com/yourusername/merchantflow.git
+git clone https://github.com/jeromejhipolito/merchantflow.git
 cd merchantflow
 pnpm install
 
@@ -103,9 +124,9 @@ pnpm db:seed
 pnpm dev
 ```
 
-- **API**: http://localhost:3001
-- **Dashboard**: http://localhost:3000
-- **Health Check**: http://localhost:3001/health
+- **API**: http://localhost:3005
+- **Dashboard**: http://localhost:3006
+- **Health Check**: http://localhost:3005/health
 
 ## Project Structure
 
@@ -120,10 +141,11 @@ merchantflow/
 │   │   │   │   ├── retry/    # Exponential backoff + full jitter
 │   │   │   │   ├── idempotency/  # Idempotency key middleware
 │   │   │   │   ├── outbox/   # Transactional outbox pattern
-│   │   │   │   └── hmac/     # HMAC sign/verify
+│   │   │   │   ├── hmac/     # HMAC sign/verify
+│   │   │   │   └── saga/     # Prisma adapter for saga-engine-ts
 │   │   │   ├── modules/      # Domain services (vertical slices)
-│   │   │   │   ├── order/    # Order sync, list, detail
-│   │   │   │   ├── shipment/ # Shipment state machine
+│   │   │   │   ├── order/    # Order sync + processing saga
+│   │   │   │   ├── shipment/ # Shipment state machine + fulfillment saga
 │   │   │   │   ├── store/    # Store lifecycle
 │   │   │   │   └── webhook/  # Inbound + outbound webhooks
 │   │   │   ├── workers/      # BullMQ job processors
@@ -139,6 +161,8 @@ merchantflow/
 ├── packages/
 │   ├── shared-types/         # TypeScript types
 │   └── shared-schemas/       # Zod validation schemas
+├── docs/
+│   └── adr/                  # Architecture Decision Records
 └── docker-compose.yml        # PostgreSQL + Redis
 ```
 
@@ -174,11 +198,13 @@ Tests target the patterns that break in production, not CRUD operations:
 | Same idempotency key + different body returns 409 | Misuse detection |
 | Concurrent idempotency keys return 409 (locked) | Race condition prevention |
 | Failed job retries with exponential backoff | Resilience |
+| Saga compensates in reverse order on step failure | Distributed transaction safety |
 | Outbox events are published after transaction commit | At-least-once delivery |
 | Multi-store webhook routes to correct store | Tenant isolation |
+| Shipment state machine rejects invalid transitions | Domain invariant enforcement |
 
 ```bash
-pnpm test              # Run all tests
+pnpm test              # Run all tests (88 passing)
 pnpm test -- --watch   # Watch mode
 ```
 
@@ -196,4 +222,4 @@ This is a portfolio demonstration. In a production system, I would add:
 
 ---
 
-Built by [Jerome](https://github.com/yourusername) as a portfolio demonstration of production-grade e-commerce backend architecture.
+Built by [Jerome](https://github.com/jeromejhipolito) | [saga-engine-ts on npm](https://www.npmjs.com/package/saga-engine-ts)
