@@ -204,7 +204,7 @@ Tests target the patterns that break in production, not CRUD operations:
 | Shipment state machine rejects invalid transitions | Domain invariant enforcement |
 
 ```bash
-pnpm test              # Run all tests (88 passing)
+pnpm test              # Run all tests (331 passing — 181 backend + 150 frontend)
 pnpm test -- --watch   # Watch mode
 ```
 
